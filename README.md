@@ -78,8 +78,13 @@ umgesetzt.
 3. Datenbank-Schema anwenden:
 
    ```bash
-   npx prisma migrate dev
+   npx prisma db push
    ```
+
+   Das gleicht Postgres direkt mit `prisma/schema.prisma` ab (kein
+   Migrationsverlauf, passend für ein Solo-/Kleinteam-Projekt in dieser
+   Phase). Der Build-Schritt (`npm run build`, auch auf Vercel) führt das
+   automatisch mit aus — lokal reicht ein einmaliges Ausführen.
 
 4. Dev-Server starten:
 
@@ -167,8 +172,10 @@ Vercel-Dashboard (Project Settings → Environment Variables) hinterlegen.
 Secrets niemals im Code oder Chat teilen.
 
 Der Prisma Client wird bei jedem `npm install` automatisch neu generiert
-(`postinstall`-Script). Für Migrationen auf der Produktions-DB:
-`npx prisma migrate deploy`.
+(`postinstall`-Script). Das Datenbankschema wird bei jedem Build automatisch
+per `prisma db push` mit der in `DATABASE_URL` hinterlegten Postgres-Instanz
+abgeglichen (Teil des `build`-Scripts) — dafür muss `DATABASE_URL` in Vercel
+bereits gesetzt sein, *bevor* der erste Build läuft.
 
 ## Weitere Befehle
 
