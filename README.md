@@ -7,15 +7,18 @@ Umfang.
 
 ## Status
 
-Aktuell umgesetzt (Schritt 1 der empfohlenen Reihenfolge):
+Aktuell umgesetzt:
 
-- Next.js App Router Projekt (TypeScript, Tailwind v4)
-- Google-Login via NextAuth (Auth.js v5) mit `drive.readonly`-Scope inkl.
-  Refresh-Token-Handling
-- Geschützte `/dashboard`-Route als Platzhalter für die weiteren Module
-- shadcn/ui-Grundkomponenten (`Button`, `Card`)
+- **Schritt 1** — Next.js App Router Projekt (TypeScript, Tailwind v4),
+  Google-Login via NextAuth (Auth.js v5) mit `drive.readonly`-Scope inkl.
+  Refresh-Token-Handling, geschützte `/dashboard`-Route, shadcn/ui-Grundkomponenten
+  (`Button`, `Card`)
+- **Schritt 2** — Drive-Sync: liest Videos aus einem freigegebenen
+  Google-Drive-Ordner (`drive.files.list`, gefiltert auf `mimeType contains
+  'video/'`) und speichert nur die Metadaten (Datei-ID, Name, Dauer,
+  Thumbnail-Link) via Prisma in Postgres — keine Videodateien selbst
 
-Noch offen: Drive-Sync, Trend-/Hook-Board, Konzept-Generator, Remotion-Pipeline.
+Noch offen: Trend-/Hook-Board, Konzept-Generator, Remotion-Pipeline.
 
 ## Lokale Einrichtung
 
@@ -37,23 +40,40 @@ Noch offen: Drive-Sync, Trend-/Hook-Board, Konzept-Generator, Remotion-Pipeline.
    - `NEXTAUTH_SECRET`: generieren mit `npx auth secret`.
    - `NEXTAUTH_URL`: `http://localhost:3000` lokal, Produktions-Domain auf
      Vercel.
-   - `DATABASE_URL`, `REMOTION_LAMBDA_FUNCTION_NAME`, `AWS_ACCESS_KEY_ID`,
-     `AWS_SECRET_ACCESS_KEY`: werden erst für spätere Module benötigt.
+   - `DATABASE_URL`: Connection-String einer Postgres-Instanz (Vercel Postgres
+     oder Supabase funktionieren beide, da Prisma nur einen Standard-Postgres-
+     Connection-String braucht).
+   - `DRIVE_FOLDER_ID`: die ID des freigegebenen Google-Drive-Ordners (aus der
+     Freigabe-URL, z. B. `https://drive.google.com/drive/folders/<ID>`).
+   - `REMOTION_LAMBDA_FUNCTION_NAME`, `AWS_ACCESS_KEY_ID`,
+     `AWS_SECRET_ACCESS_KEY`: werden erst für die Remotion-Rendering-Pipeline
+     benötigt.
 
-3. Dev-Server starten:
+3. Datenbank-Schema anwenden:
+
+   ```bash
+   npx prisma migrate dev
+   ```
+
+4. Dev-Server starten:
 
    ```bash
    npm run dev
    ```
 
    [http://localhost:3000](http://localhost:3000) öffnen. Login leitet nach
-   `/dashboard` weiter.
+   `/dashboard` weiter. Dort lässt sich über die Ordner-ID + "Jetzt
+   synchronisieren" der Drive-Sync manuell auslösen.
 
 ## Deployment
 
 Auf Vercel deployen und dieselben Variablen aus `.env.example` im
 Vercel-Dashboard (Project Settings → Environment Variables) hinterlegen.
 Secrets niemals im Code oder Chat teilen.
+
+Der Prisma Client wird bei jedem `npm install` automatisch neu generiert
+(`postinstall`-Script). Für Migrationen auf der Produktions-DB:
+`npx prisma migrate deploy`.
 
 ## Weitere Befehle
 
