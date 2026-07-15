@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
@@ -8,10 +9,6 @@ import { formatDuration } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
 const UPCOMING_MODULES = [
-  {
-    title: "Trend-/Hook-Board",
-    description: "Kuratierte Hook-Formate als Ausgangspunkt für neue Konzepte.",
-  },
   {
     title: "Konzept-Generator",
     description: "Trend-Format + Clips zu einer strukturierten Shotlist verknüpfen.",
@@ -91,6 +88,17 @@ export default async function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      <Link href="/dashboard/trends">
+        <Card className="transition-colors hover:bg-accent">
+          <CardHeader>
+            <CardTitle className="text-base">Trend-/Hook-Board</CardTitle>
+            <CardDescription>
+              Kuratierte Hook-Formate als Ausgangspunkt für neue Konzepte.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </Link>
 
       <div className="grid gap-4 sm:grid-cols-2">
         {UPCOMING_MODULES.map((module) => (
