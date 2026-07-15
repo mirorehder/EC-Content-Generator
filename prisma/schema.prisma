@@ -23,3 +23,13 @@ model Clip {
   createdAt     DateTime @default(now())
   syncedAt      DateTime @updatedAt
 }
+
+model Concept {
+  id            String   @id @default(cuid())
+  trendFormatId String
+  trendTitle    String
+  caption       String
+  hashtags      String[]
+  shotlist      Json
+  createdAt     DateTime @default(now())
+}

@@ -1,0 +1,55 @@
+import Anthropic from "@anthropic-ai/sdk";
+
+let client: Anthropic | undefined;
+
+export function getAnthropicClient(): Anthropic | null {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  client ??= new Anthropic();
+  return client;
+}
+
+const EDGECHASE_SYSTEM_PROMPT = `Du schreibst Hook-Texte und Captions für EdgeChase, eine Sport-/Streetwear-Marke.
+Ton: direkt, energiegeladen, kurz. Keine Ausrufezeichen-Häufung, keine generischen Marketing-Phrasen.
+Antworte ausschließlich mit kompaktem JSON im Format {"caption": string, "hashtags": string[]} ohne weiteren Text.`;
+
+export interface CaptionSuggestion {
+  caption: string;
+  hashtags: string[];
+}
+
+export async function suggestCaption(
+  trendTitle: string,
+  hook: string,
+  clipNames: string[]
+): Promise<CaptionSuggestion> {
+  const anthropic = getAnthropicClient();
+
+  if (!anthropic) {
+    throw new Error("ANTHROPIC_API_KEY ist nicht gesetzt.");
+  }
+
+  const response = await anthropic.messages.create({
+    model: "claude-opus-4-8",
+    max_tokens: 1024,
+    system: EDGECHASE_SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: `Trend-Format: ${trendTitle}\nHook-Vorlage: ${hook}\nClips in dieser Shotlist: ${clipNames.join(", ") || "(keine)"}\n\nSchreibe eine passende Caption mit 3-5 Hashtags.`,
+      },
+    ],
+  });
+
+  if (response.stop_reason === "refusal") {
+    throw new Error("Anthropic hat die Anfrage abgelehnt.");
+  }
+
+  const textBlock = response.content.find((block) => block.type === "text");
+
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("Keine Textantwort von Anthropic erhalten.");
+  }
+
+  const parsed = JSON.parse(textBlock.text) as CaptionSuggestion;
+  return parsed;
+}

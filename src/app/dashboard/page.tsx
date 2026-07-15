@@ -10,10 +10,6 @@ import { prisma } from "@/lib/prisma";
 
 const UPCOMING_MODULES = [
   {
-    title: "Konzept-Generator",
-    description: "Trend-Format + Clips zu einer strukturierten Shotlist verknüpfen.",
-  },
-  {
     title: "Rendering-Pipeline",
     description: "Shotlist per Remotion Lambda rendern und den Download bereitstellen.",
   },
@@ -89,16 +85,28 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
 
-      <Link href="/dashboard/trends">
-        <Card className="transition-colors hover:bg-accent">
-          <CardHeader>
-            <CardTitle className="text-base">Trend-/Hook-Board</CardTitle>
-            <CardDescription>
-              Kuratierte Hook-Formate als Ausgangspunkt für neue Konzepte.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </Link>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/dashboard/trends">
+          <Card className="h-full transition-colors hover:bg-accent">
+            <CardHeader>
+              <CardTitle className="text-base">Trend-/Hook-Board</CardTitle>
+              <CardDescription>
+                Kuratierte Hook-Formate als Ausgangspunkt für neue Konzepte.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+        <Link href="/dashboard/concepts">
+          <Card className="h-full transition-colors hover:bg-accent">
+            <CardHeader>
+              <CardTitle className="text-base">Konzept-Generator</CardTitle>
+              <CardDescription>
+                Trend-Format + Clips zu einer strukturierten Shotlist verknüpfen.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         {UPCOMING_MODULES.map((module) => (

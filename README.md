@@ -17,8 +17,20 @@ Aktuell umgesetzt:
   Google-Drive-Ordner (`drive.files.list`, gefiltert auf `mimeType contains
   'video/'`) und speichert nur die Metadaten (Datei-ID, Name, Dauer,
   Thumbnail-Link) via Prisma in Postgres — keine Videodateien selbst
+- **Schritt 3** — Trend-/Hook-Board: kuratierte, statische Liste von
+  Hook-Formaten (Hook-Text, Szenen-Struktur, Timing, Tags) unter
+  `/dashboard/trends` — aktuell mit Platzhalter-Daten, siehe Hinweis unten
+- **Schritt 4** — Konzept-Generator: verknüpft ein Trend-Format mit
+  ausgewählten Clips zu einer Shotlist (JSON: Szenen, Timing, Caption,
+  Hashtags) unter `/dashboard/concepts`. Optional generiert die Anthropic
+  API (`claude-opus-4-8`) einen Caption-/Hook-Vorschlag im EdgeChase-Ton —
+  ohne `ANTHROPIC_API_KEY` bleibt das Feld einfach manuell ausfüllbar.
 
-Noch offen: Trend-/Hook-Board, Konzept-Generator, Remotion-Pipeline.
+Noch offen: Remotion-Rendering-Pipeline.
+
+> Die Trend-Formate in `src/lib/trend-formats.ts` sind ein generisches
+> Platzhalter-Startset, keine echte Recherche — dort direkt ersetzen, sobald
+> die eigentlichen Trend-Daten vorliegen.
 
 ## Lokale Einrichtung
 
@@ -45,6 +57,9 @@ Noch offen: Trend-/Hook-Board, Konzept-Generator, Remotion-Pipeline.
      Connection-String braucht).
    - `DRIVE_FOLDER_ID`: die ID des freigegebenen Google-Drive-Ordners (aus der
      Freigabe-URL, z. B. `https://drive.google.com/drive/folders/<ID>`).
+   - `ANTHROPIC_API_KEY`: optional, nur für die KI-Caption-Vorschläge im
+     Konzept-Generator. Ohne Key funktioniert der Konzept-Generator trotzdem
+     (Caption/Hashtags einfach manuell eintragen).
    - `REMOTION_LAMBDA_FUNCTION_NAME`, `AWS_ACCESS_KEY_ID`,
      `AWS_SECRET_ACCESS_KEY`: werden erst für die Remotion-Rendering-Pipeline
      benötigt.
