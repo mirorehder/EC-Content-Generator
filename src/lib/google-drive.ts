@@ -51,3 +51,26 @@ export async function listVideoFiles(
 
   return files;
 }
+
+export interface DriveMediaStream {
+  stream: NodeJS.ReadableStream;
+  mimeType: string;
+  contentLength: string | null;
+}
+
+export async function getDriveMediaStream(
+  accessToken: string,
+  driveFileId: string
+): Promise<DriveMediaStream> {
+  const drive = createDriveClient(accessToken);
+  const res = await drive.files.get(
+    { fileId: driveFileId, alt: "media" },
+    { responseType: "stream" }
+  );
+
+  return {
+    stream: res.data,
+    mimeType: (res.headers["content-type"] as string | undefined) ?? "video/mp4",
+    contentLength: (res.headers["content-length"] as string | undefined) ?? null,
+  };
+}

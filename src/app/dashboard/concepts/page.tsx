@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { ConceptForm } from "@/components/concept-form";
+import { RenderButton } from "@/components/render-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { TREND_FORMATS } from "@/lib/trend-formats";
@@ -68,6 +69,7 @@ export default async function ConceptsPage() {
                 {concept.hashtags.length > 0 && (
                   <p className="text-sm text-muted-foreground">{concept.hashtags.join(" ")}</p>
                 )}
+                <RenderButton conceptId={concept.id} />
               </CardContent>
             </Card>
           ))

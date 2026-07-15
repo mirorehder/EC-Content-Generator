@@ -25,8 +25,17 @@ Aktuell umgesetzt:
   Hashtags) unter `/dashboard/concepts`. Optional generiert die Anthropic
   API (`claude-opus-4-8`) einen Caption-/Hook-Vorschlag im EdgeChase-Ton —
   ohne `ANTHROPIC_API_KEY` bleibt das Feld einfach manuell ausfüllbar.
+- **Schritt 5** — Rendering-Pipeline: `remotion/ShotlistVideo.tsx` ist eine
+  eigenständige Remotion-Komposition (1080×1920, Szenen mit Crossfade +
+  Caption-Overlay), lokal isoliert getestet und gerendert (siehe
+  "Remotion lokal testen" unten). Ein "Video rendern"-Button im
+  Konzept-Generator stößt den Render über Remotion Lambda an (AWS,
+  umgeht die Vercel-Function-Zeitgrenze) und zeigt Fortschritt +
+  Download-Link. Ohne konfiguriertes Lambda meldet der Button klar, dass
+  das AWS-Setup fehlt (siehe "Remotion Lambda einrichten" unten).
 
-Noch offen: Remotion-Rendering-Pipeline.
+Alle fünf Schritte aus der Architektur-Spezifikation sind damit im Code
+umgesetzt.
 
 > Die Trend-Formate in `src/lib/trend-formats.ts` sind ein generisches
 > Platzhalter-Startset, keine echte Recherche — dort direkt ersetzen, sobald
@@ -60,9 +69,11 @@ Noch offen: Remotion-Rendering-Pipeline.
    - `ANTHROPIC_API_KEY`: optional, nur für die KI-Caption-Vorschläge im
      Konzept-Generator. Ohne Key funktioniert der Konzept-Generator trotzdem
      (Caption/Hashtags einfach manuell eintragen).
-   - `REMOTION_LAMBDA_FUNCTION_NAME`, `AWS_ACCESS_KEY_ID`,
-     `AWS_SECRET_ACCESS_KEY`: werden erst für die Remotion-Rendering-Pipeline
-     benötigt.
+   - `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_SERVE_URL`, `AWS_REGION`,
+     `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: für die
+     Rendering-Pipeline — siehe "Remotion Lambda einrichten" unten. Ohne
+     diese Variablen funktioniert die App weiterhin, der "Video
+     rendern"-Button meldet dann nur, dass Lambda noch nicht konfiguriert ist.
 
 3. Datenbank-Schema anwenden:
 
@@ -79,6 +90,75 @@ Noch offen: Remotion-Rendering-Pipeline.
    [http://localhost:3000](http://localhost:3000) öffnen. Login leitet nach
    `/dashboard` weiter. Dort lässt sich über die Ordner-ID + "Jetzt
    synchronisieren" der Drive-Sync manuell auslösen.
+
+## Remotion lokal testen
+
+Die Video-Komposition (`remotion/ShotlistVideo.tsx`) lässt sich unabhängig
+vom Rest der App entwickeln und testen — kein AWS-Account nötig:
+
+```bash
+npm run remotion:studio   # interaktive Vorschau im Browser
+npm run remotion:render   # rendert die Beispiel-Props aus remotion/Root.tsx nach out/video.mp4
+```
+
+Beim ersten Aufruf lädt Remotion einmalig einen eigenen Headless-Chromium
+herunter. Beispiel-Props (`SAMPLE_PROPS` in `remotion/Root.tsx`) verwenden
+öffentliche Test-Videos — für echte Clips per `--props` eine eigene JSON-Datei
+mit `scenes`/`caption`/`hashtags` übergeben (siehe `ShotlistVideoProps` in
+`remotion/ShotlistVideo.tsx`).
+
+## Remotion Lambda einrichten
+
+Das eigentliche Rendering läuft nicht auf Vercel (Zeitlimit), sondern auf
+AWS Lambda über Remotion. Dieses Setup ist einmalig und muss manuell mit
+einem eigenen AWS-Account gemacht werden — das kann Claude Code nicht für
+dich übernehmen:
+
+1. AWS-Account mit Zugriff auf IAM, Lambda und S3.
+2. Benötigte IAM-Policy für den deployenden AWS-User ausgeben lassen und in
+   der AWS-Console als Policy anlegen + dem User zuweisen:
+
+   ```bash
+   npx remotion lambda policies user
+   ```
+
+3. Benötigte IAM-Rolle für die Lambda-Ausführung ausgeben lassen und in der
+   AWS-Console anlegen:
+
+   ```bash
+   npx remotion lambda policies role
+   ```
+
+4. AWS-Zugangsdaten des deployenden Users in `.env.local` eintragen:
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (Standard
+   `eu-central-1`).
+5. Lambda-Funktion deployen:
+
+   ```bash
+   npx remotion lambda functions deploy
+   ```
+
+   Den ausgegebenen Funktionsnamen in `REMOTION_LAMBDA_FUNCTION_NAME`
+   eintragen.
+
+6. Projekt als "Site" auf S3 hochladen (Remotion bundelt dabei
+   `remotion/index.ts`):
+
+   ```bash
+   npx remotion lambda sites create remotion/index.ts --site-name=ec-content-generator
+   ```
+
+   Die ausgegebene Serve-URL in `REMOTION_SERVE_URL` eintragen.
+
+7. Dieselben fünf Variablen zusätzlich im Vercel-Dashboard hinterlegen.
+
+Danach funktioniert der "Video rendern"-Button im Konzept-Generator: Er
+erstellt einen `Render`-Datenbankeintrag, baut für jeden Clip eine
+temporäre, signierte Proxy-URL (`/api/clips/[clipId]/media`, die serverseitig
+mit dem Google-Zugriffstoken des Renders auf Drive zugreift und die
+Videodaten durchreicht — Lambda selbst hat kein Google-Login) und startet
+den Render auf Lambda. Fortschritt wird per Polling angezeigt, das fertige
+Video landet in S3 und wird als Download-Link angezeigt.
 
 ## Deployment
 

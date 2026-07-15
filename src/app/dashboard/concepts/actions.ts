@@ -16,7 +16,7 @@ export interface ShotlistScene {
   timingSeconds: number;
 }
 
-async function requireSession() {
+export async function requireSession() {
   const session = await auth();
   if (!session?.user) throw new Error("Nicht angemeldet.");
   return session;
