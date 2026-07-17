@@ -8,7 +8,10 @@ import { prisma } from "@/lib/prisma";
 import { requireSession, type ShotlistScene } from "./actions";
 
 function isBlobConfigured(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  // Klassische Verbindung setzt BLOB_READ_WRITE_TOKEN; ein per Vercel-
+  // Dashboard verknüpfter Store authentifiziert stattdessen automatisch
+  // über einen OIDC-Token, sichtbar nur an BLOB_STORE_ID.
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 }
 
 export interface StartRenderResult {

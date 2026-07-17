@@ -76,10 +76,10 @@ umgesetzt.
      [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ohne
      Key funktioniert der Konzept-Generator trotzdem (Caption/Hashtags/Clips
      einfach manuell eintragen bzw. auswählen).
-   - `BLOB_READ_WRITE_TOKEN`: für die Rendering-Pipeline — siehe
-     "Video-Rendering einrichten" unten. Ohne diese Variable funktioniert die
-     App weiterhin, der "Video rendern"-Button meldet dann nur, dass der
-     Video-Speicher noch nicht konfiguriert ist.
+   - `BLOB_READ_WRITE_TOKEN`: für die Rendering-Pipeline, nur lokal nötig —
+     siehe "Video-Rendering einrichten" unten. Ohne diese Variable
+     funktioniert die App weiterhin, der "Video rendern"-Button meldet dann
+     nur, dass der Video-Speicher noch nicht konfiguriert ist.
 
 3. Datenbank-Schema anwenden:
 
@@ -111,9 +111,12 @@ abzulegen: **Vercel Blob Storage**.
 
 1. Im Vercel-Dashboard: **Storage** → **Create Database** → **Blob** → mit
    diesem Projekt verknüpfen. Vercel setzt daraufhin automatisch
-   `BLOB_READ_WRITE_TOKEN` als Environment Variable im Projekt — kein
-   AWS-Account, keine IAM-Policies, kein separates Deployment nötig.
-2. Für lokale Entwicklung: denselben Token aus dem Blob-Store-Dashboard in
+   `BLOB_STORE_ID` (+ einen automatisch verwalteten OIDC-Token zur
+   Laufzeit) als Environment Variables im Projekt — kein AWS-Account,
+   keine IAM-Policies, kein separates Deployment nötig. Ein Redeploy nach
+   dem Verknüpfen ist nötig, damit die neuen Variablen greifen.
+2. Für lokale Entwicklung (kein OIDC-Token vorhanden): im
+   Blob-Store-Dashboard einen klassischen Read-Write-Token erzeugen und in
    `.env.local` als `BLOB_READ_WRITE_TOKEN` eintragen.
 
 Danach funktioniert der "Video rendern"-Button im Konzept-Generator direkt:
