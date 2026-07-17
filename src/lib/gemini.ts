@@ -1,6 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
-const MODEL = "gemini-2.5-flash";
+// Alias, not a pinned dated model — avoids breaking again when Google
+// retires a specific version (as it did with gemini-2.5-flash).
+const MODEL = "gemini-flash-latest";
 
 let client: GoogleGenAI | undefined;
 

@@ -2,7 +2,9 @@ import type { Part } from "@google/genai";
 
 import { getGeminiClient } from "@/lib/gemini";
 
-const MODEL = "gemini-2.5-flash";
+// Alias, not a pinned dated model — avoids breaking again when Google
+// retires a specific version (as it did with gemini-2.5-flash).
+const MODEL = "gemini-flash-latest";
 
 const SYSTEM_PROMPT = `Du beschreibst kurz und knapp, was in Video-Vorschaubildern zu sehen ist (Motiv, Setting, Action, Stimmung) — für Sport-/Streetwear-Content von EdgeChase. Antworte ausschließlich mit kompaktem JSON im Format {"summaries": [{"clipId": string, "summary": string}]}. Jede Zusammenfassung maximal ein Satz.`;
 
