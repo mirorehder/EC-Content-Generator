@@ -5,6 +5,7 @@ import { useActionState, useState, useTransition } from "react";
 import {
   createConceptAction,
   generateCaptionSuggestionAction,
+  suggestClipsForConceptAction,
   type CreateConceptResult,
 } from "@/app/dashboard/concepts/actions";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,8 @@ export function ConceptForm({
   const [hashtags, setHashtags] = useState("");
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [isGenerating, startGenerating] = useTransition();
+  const [clipSuggestionMessage, setClipSuggestionMessage] = useState<string | null>(null);
+  const [isSuggestingClips, startSuggestingClips] = useTransition();
 
   const [result, formAction, isSaving] = useActionState<CreateConceptResult | null, FormData>(
     createConceptAction,
@@ -38,6 +41,18 @@ export function ConceptForm({
     setClipIds((prev) =>
       prev.includes(clipId) ? prev.filter((id) => id !== clipId) : [...prev, clipId]
     );
+  }
+
+  function handleSuggestClips() {
+    setClipSuggestionMessage(null);
+    startSuggestingClips(async () => {
+      const suggestion = await suggestClipsForConceptAction(trendFormatId);
+      if (suggestion.ok) {
+        setClipIds(suggestion.clipIds ?? []);
+      } else {
+        setClipSuggestionMessage(suggestion.message ?? "Clip-Vorschlag fehlgeschlagen.");
+      }
+    });
   }
 
   function handleGenerateSuggestion() {
@@ -74,7 +89,23 @@ export function ConceptForm({
       </div>
 
       <div>
-        <p className="mb-2 text-sm font-medium">Clips</p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-medium">Clips</p>
+          {clips.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSuggestingClips || !trendFormatId}
+              onClick={handleSuggestClips}
+            >
+              {isSuggestingClips ? "Analysiere…" : "Passende Clips vorschlagen"}
+            </Button>
+          )}
+        </div>
+        {clipSuggestionMessage && (
+          <p className="mb-2 text-sm text-destructive">{clipSuggestionMessage}</p>
+        )}
         {clips.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Noch keine Clips synchronisiert — zuerst im Drive-Sync-Bereich synchronisieren.

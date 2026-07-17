@@ -25,6 +25,10 @@ Aktuell umgesetzt:
   Hashtags) unter `/dashboard/concepts`. Optional generiert die Anthropic
   API (`claude-opus-4-8`) einen Caption-/Hook-Vorschlag im EdgeChase-Ton —
   ohne `ANTHROPIC_API_KEY` bleibt das Feld einfach manuell ausfüllbar.
+  Zusätzlich: "Passende Clips vorschlagen" analysiert die Vorschaubilder
+  noch nicht analysierter Clips per Claude Vision (Ergebnis wird pro Clip
+  in `visionSummary` gecacht) und schlägt darauf basierend eine passende
+  Clip-Auswahl zum gewählten Hook-Format vor.
 - **Schritt 5** — Rendering-Pipeline: `remotion/ShotlistVideo.tsx` ist eine
   eigenständige Remotion-Komposition (1080×1920, Szenen mit Crossfade +
   Caption-Overlay), lokal isoliert getestet und gerendert (siehe

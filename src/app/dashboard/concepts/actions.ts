@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import { Prisma } from "@/generated/prisma/client";
-import { suggestCaption } from "@/lib/anthropic";
+import { suggestCaption, suggestMatchingClips } from "@/lib/anthropic";
+import { analyzeClipsVision } from "@/lib/clip-vision";
 import { prisma } from "@/lib/prisma";
 import { TREND_FORMATS } from "@/lib/trend-formats";
 
@@ -52,6 +53,75 @@ export async function generateCaptionSuggestionAction(
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
     return { ok: false, message: `KI-Vorschlag fehlgeschlagen: ${detail}` };
+  }
+}
+
+export interface ClipSuggestionResult {
+  ok: boolean;
+  clipIds?: string[];
+  message?: string;
+}
+
+export async function suggestClipsForConceptAction(
+  trendFormatId: string
+): Promise<ClipSuggestionResult> {
+  const session = await requireSession();
+
+  const format = TREND_FORMATS.find((f) => f.id === trendFormatId);
+  if (!format) {
+    return { ok: false, message: "Unbekanntes Trend-Format." };
+  }
+
+  if (!session.accessToken) {
+    return { ok: false, message: "Kein Google-Zugriffstoken vorhanden. Bitte neu anmelden." };
+  }
+
+  const clips = await prisma.clip.findMany();
+  if (clips.length === 0) {
+    return { ok: false, message: "Keine synchronisierten Clips vorhanden." };
+  }
+
+  try {
+    const clipsMissingVision = clips.filter((clip) => !clip.visionSummary && clip.thumbnailLink);
+
+    if (clipsMissingVision.length > 0) {
+      const summaries = await analyzeClipsVision(
+        session.accessToken,
+        clipsMissingVision.map((clip) => ({
+          id: clip.id,
+          name: clip.name,
+          thumbnailLink: clip.thumbnailLink!,
+        }))
+      );
+
+      await Promise.all(
+        Object.entries(summaries).map(([clipId, summary]) =>
+          prisma.clip.update({ where: { id: clipId }, data: { visionSummary: summary } })
+        )
+      );
+    }
+
+    const refreshedClips = await prisma.clip.findMany();
+
+    const suggestedClipIds = await suggestMatchingClips(
+      format.title,
+      format.hook,
+      format.structure,
+      refreshedClips.map((clip) => ({ id: clip.id, name: clip.name, summary: clip.visionSummary }))
+    );
+
+    const validClipIds = suggestedClipIds.filter((id) =>
+      refreshedClips.some((clip) => clip.id === id)
+    );
+
+    if (validClipIds.length === 0) {
+      return { ok: false, message: "Keine passenden Clips gefunden." };
+    }
+
+    return { ok: true, clipIds: validClipIds };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
+    return { ok: false, message: `Clip-Vorschlag fehlgeschlagen: ${detail}` };
   }
 }
 

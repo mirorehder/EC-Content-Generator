@@ -20,6 +20,7 @@ model Clip {
   durationMs    Int?
   thumbnailLink String?
   webViewLink   String?
+  visionSummary String?
   createdAt     DateTime @default(now())
   syncedAt      DateTime @updatedAt
 }
