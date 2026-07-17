@@ -1,55 +1,30 @@
 "use server";
 
+import { put } from "@vercel/blob";
 import { revalidatePath } from "next/cache";
 
+import { renderShotlist } from "@/lib/ffmpeg-render";
 import { prisma } from "@/lib/prisma";
-import { checkLambdaRenderProgress, isLambdaConfigured, triggerLambdaRender } from "@/lib/remotion-lambda";
-import type { ShotlistVideoProps } from "../../../../remotion/ShotlistVideo";
 import { requireSession, type ShotlistScene } from "./actions";
 
-function getBaseUrl(): string {
-  const url = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return url.endsWith("/") ? url.slice(0, -1) : url;
-}
-
-export interface RenderState {
-  id: string;
-  status: string;
-  progress: number;
-  outputUrl: string | null;
-  errorMessage: string | null;
-}
-
-function toRenderState(render: {
-  id: string;
-  status: string;
-  progress: number;
-  outputUrl: string | null;
-  errorMessage: string | null;
-}): RenderState {
-  return {
-    id: render.id,
-    status: render.status,
-    progress: render.progress,
-    outputUrl: render.outputUrl,
-    errorMessage: render.errorMessage,
-  };
+function isBlobConfigured(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
 export interface StartRenderResult {
   ok: boolean;
-  renderId?: string;
+  outputUrl?: string;
   message?: string;
 }
 
 export async function startRenderAction(conceptId: string): Promise<StartRenderResult> {
   const session = await requireSession();
 
-  if (!isLambdaConfigured()) {
+  if (!isBlobConfigured()) {
     return {
       ok: false,
       message:
-        "Remotion Lambda ist noch nicht eingerichtet. Siehe README für die Deployment-Schritte (npx remotion lambda ...).",
+        "Video-Speicher (Vercel Blob) ist noch nicht eingerichtet. Siehe README, Abschnitt \"Video-Rendering einrichten\".",
     };
   }
 
@@ -62,83 +37,40 @@ export async function startRenderAction(conceptId: string): Promise<StartRenderR
     return { ok: false, message: "Konzept nicht gefunden." };
   }
 
-  const render = await prisma.render.create({
-    data: {
-      conceptId,
-      status: "pending",
-      driveAccessToken: session.accessToken,
-    },
-  });
-
-  const baseUrl = getBaseUrl();
   const scenes = concept.shotlist as unknown as ShotlistScene[];
-
-  const inputProps: ShotlistVideoProps = {
-    caption: concept.caption,
-    hashtags: concept.hashtags,
-    scenes: scenes.map((scene) => ({
-      order: scene.order,
-      note: scene.note,
-      timingSeconds: scene.timingSeconds,
-      clipUrl: `${baseUrl}/api/clips/${scene.clipId}/media?renderId=${render.id}`,
-    })),
-  };
+  const clips = await prisma.clip.findMany({
+    where: { id: { in: scenes.map((scene) => scene.clipId) } },
+  });
+  const driveFileIdByClipId = new Map(clips.map((clip) => [clip.id, clip.driveFileId]));
 
   try {
-    const { renderId, bucketName } = await triggerLambdaRender(inputProps);
-    await prisma.render.update({
-      where: { id: render.id },
-      data: { status: "rendering", remotionRenderId: renderId, bucketName },
+    const videoBuffer = await renderShotlist(
+      session.accessToken,
+      scenes.map((scene) => {
+        const driveFileId = driveFileIdByClipId.get(scene.clipId);
+        if (!driveFileId) throw new Error(`Clip ${scene.clipName} nicht gefunden.`);
+        return { driveFileId, timingSeconds: scene.timingSeconds };
+      }),
+      `${concept.caption} ${concept.hashtags.join(" ")}`.trim()
+    );
+
+    const blob = await put(`renders/${conceptId}-${Date.now()}.mp4`, videoBuffer, {
+      access: "public",
+      contentType: "video/mp4",
     });
+
+    await prisma.render.create({
+      data: { conceptId, status: "done", outputUrl: blob.url },
+    });
+
+    revalidatePath("/dashboard/concepts");
+    return { ok: true, outputUrl: blob.url };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
-    await prisma.render.update({
-      where: { id: render.id },
-      data: { status: "error", errorMessage: detail },
+    await prisma.render.create({
+      data: { conceptId, status: "error", errorMessage: detail },
     });
-    return { ok: false, message: `Render konnte nicht gestartet werden: ${detail}` };
-  }
-
-  revalidatePath("/dashboard/concepts");
-  return { ok: true, renderId: render.id };
-}
-
-export async function getRenderStatusAction(renderId: string): Promise<RenderState | null> {
-  await requireSession();
-
-  const render = await prisma.render.findUnique({ where: { id: renderId } });
-  if (!render) return null;
-
-  if (render.status === "done" || render.status === "error") {
-    return toRenderState(render);
-  }
-
-  if (!render.remotionRenderId || !render.bucketName) {
-    return toRenderState(render);
-  }
-
-  try {
-    const progress = await checkLambdaRenderProgress(render.remotionRenderId, render.bucketName);
-
-    const updated = await prisma.render.update({
-      where: { id: render.id },
-      data: progress.fatalErrorEncountered
-        ? {
-            status: "error",
-            errorMessage: progress.errors[0]?.message ?? "Rendering fehlgeschlagen.",
-          }
-        : progress.done
-          ? { status: "done", outputUrl: progress.outputFile, progress: 1 }
-          : { status: "rendering", progress: progress.overallProgress },
-    });
-
-    return toRenderState(updated);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
-    const updated = await prisma.render.update({
-      where: { id: render.id },
-      data: { status: "error", errorMessage: detail },
-    });
-    return toRenderState(updated);
+    revalidatePath("/dashboard/concepts");
+    return { ok: false, message: `Render fehlgeschlagen: ${detail}` };
   }
 }

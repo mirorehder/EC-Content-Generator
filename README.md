@@ -29,14 +29,14 @@ Aktuell umgesetzt:
   noch nicht analysierter Clips per Gemini Vision (Ergebnis wird pro Clip
   in `visionSummary` gecacht) und schlägt darauf basierend eine passende
   Clip-Auswahl zum gewählten Hook-Format vor.
-- **Schritt 5** — Rendering-Pipeline: `remotion/ShotlistVideo.tsx` ist eine
-  eigenständige Remotion-Komposition (1080×1920, Szenen mit Crossfade +
-  Caption-Overlay), lokal isoliert getestet und gerendert (siehe
-  "Remotion lokal testen" unten). Ein "Video rendern"-Button im
-  Konzept-Generator stößt den Render über Remotion Lambda an (AWS,
-  umgeht die Vercel-Function-Zeitgrenze) und zeigt Fortschritt +
-  Download-Link. Ohne konfiguriertes Lambda meldet der Button klar, dass
-  das AWS-Setup fehlt (siehe "Remotion Lambda einrichten" unten).
+- **Schritt 5** — Rendering-Pipeline: Der "Video rendern"-Button im
+  Konzept-Generator lädt die ausgewählten Clips aus Drive, hängt sie per
+  FFmpeg aneinander (vertikal auf 1080×1920 normalisiert, je Szene auf die
+  Timing-Länge getrimmt) und brennt die Caption als Text-Overlay ein. Das
+  fertige Video landet in Vercel Blob Storage und wird als Download-Link
+  angezeigt. Kein AWS/Remotion nötig — bewusst einfach gehalten (kein
+  Crossfade, keine aufwändigen Übergänge), siehe "Video-Rendering
+  einrichten" unten.
 
 Alle fünf Schritte aus der Architektur-Spezifikation sind damit im Code
 umgesetzt.
@@ -76,11 +76,10 @@ umgesetzt.
      [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ohne
      Key funktioniert der Konzept-Generator trotzdem (Caption/Hashtags/Clips
      einfach manuell eintragen bzw. auswählen).
-   - `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_SERVE_URL`, `AWS_REGION`,
-     `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: für die
-     Rendering-Pipeline — siehe "Remotion Lambda einrichten" unten. Ohne
-     diese Variablen funktioniert die App weiterhin, der "Video
-     rendern"-Button meldet dann nur, dass Lambda noch nicht konfiguriert ist.
+   - `BLOB_READ_WRITE_TOKEN`: für die Rendering-Pipeline — siehe
+     "Video-Rendering einrichten" unten. Ohne diese Variable funktioniert die
+     App weiterhin, der "Video rendern"-Button meldet dann nur, dass der
+     Video-Speicher noch nicht konfiguriert ist.
 
 3. Datenbank-Schema anwenden:
 
@@ -103,74 +102,31 @@ umgesetzt.
    `/dashboard` weiter. Dort lässt sich über die Ordner-ID + "Jetzt
    synchronisieren" der Drive-Sync manuell auslösen.
 
-## Remotion lokal testen
+## Video-Rendering einrichten
 
-Die Video-Komposition (`remotion/ShotlistVideo.tsx`) lässt sich unabhängig
-vom Rest der App entwickeln und testen — kein AWS-Account nötig:
+Das Rendering (Clips aneinanderhängen + Caption einbrennen) läuft direkt in
+einer Vercel Server Action mit FFmpeg (`@ffmpeg-installer/ffmpeg`, kein
+externer Dienst nötig) und braucht nur einen Ort, um das fertige Video
+abzulegen: **Vercel Blob Storage**.
 
-```bash
-npm run remotion:studio   # interaktive Vorschau im Browser
-npm run remotion:render   # rendert die Beispiel-Props aus remotion/Root.tsx nach out/video.mp4
-```
+1. Im Vercel-Dashboard: **Storage** → **Create Database** → **Blob** → mit
+   diesem Projekt verknüpfen. Vercel setzt daraufhin automatisch
+   `BLOB_READ_WRITE_TOKEN` als Environment Variable im Projekt — kein
+   AWS-Account, keine IAM-Policies, kein separates Deployment nötig.
+2. Für lokale Entwicklung: denselben Token aus dem Blob-Store-Dashboard in
+   `.env.local` als `BLOB_READ_WRITE_TOKEN` eintragen.
 
-Beim ersten Aufruf lädt Remotion einmalig einen eigenen Headless-Chromium
-herunter. Beispiel-Props (`SAMPLE_PROPS` in `remotion/Root.tsx`) verwenden
-öffentliche Test-Videos — für echte Clips per `--props` eine eigene JSON-Datei
-mit `scenes`/`caption`/`hashtags` übergeben (siehe `ShotlistVideoProps` in
-`remotion/ShotlistVideo.tsx`).
+Danach funktioniert der "Video rendern"-Button im Konzept-Generator direkt:
+Clips werden aus Drive geladen, auf 1080×1920 normalisiert, auf die
+jeweilige Szenen-Länge getrimmt, aneinandergehängt und die Caption als
+Text-Overlay eingebrannt (Font: DejaVu Sans Bold, liegt unter
+`assets/fonts/`). Das Ergebnis wird nach Vercel Blob hochgeladen und als
+Download-Link angezeigt.
 
-## Remotion Lambda einrichten
-
-Das eigentliche Rendering läuft nicht auf Vercel (Zeitlimit), sondern auf
-AWS Lambda über Remotion. Dieses Setup ist einmalig und muss manuell mit
-einem eigenen AWS-Account gemacht werden — das kann Claude Code nicht für
-dich übernehmen:
-
-1. AWS-Account mit Zugriff auf IAM, Lambda und S3.
-2. Benötigte IAM-Policy für den deployenden AWS-User ausgeben lassen und in
-   der AWS-Console als Policy anlegen + dem User zuweisen:
-
-   ```bash
-   npx remotion lambda policies user
-   ```
-
-3. Benötigte IAM-Rolle für die Lambda-Ausführung ausgeben lassen und in der
-   AWS-Console anlegen:
-
-   ```bash
-   npx remotion lambda policies role
-   ```
-
-4. AWS-Zugangsdaten des deployenden Users in `.env.local` eintragen:
-   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (Standard
-   `eu-central-1`).
-5. Lambda-Funktion deployen:
-
-   ```bash
-   npx remotion lambda functions deploy
-   ```
-
-   Den ausgegebenen Funktionsnamen in `REMOTION_LAMBDA_FUNCTION_NAME`
-   eintragen.
-
-6. Projekt als "Site" auf S3 hochladen (Remotion bundelt dabei
-   `remotion/index.ts`):
-
-   ```bash
-   npx remotion lambda sites create remotion/index.ts --site-name=ec-content-generator
-   ```
-
-   Die ausgegebene Serve-URL in `REMOTION_SERVE_URL` eintragen.
-
-7. Dieselben fünf Variablen zusätzlich im Vercel-Dashboard hinterlegen.
-
-Danach funktioniert der "Video rendern"-Button im Konzept-Generator: Er
-erstellt einen `Render`-Datenbankeintrag, baut für jeden Clip eine
-temporäre, signierte Proxy-URL (`/api/clips/[clipId]/media`, die serverseitig
-mit dem Google-Zugriffstoken des Renders auf Drive zugreift und die
-Videodaten durchreicht — Lambda selbst hat kein Google-Login) und startet
-den Render auf Lambda. Fortschritt wird per Polling angezeigt, das fertige
-Video landet in S3 und wird als Download-Link angezeigt.
+**Bekannte Einschränkung:** Es wird angenommen, dass jeder Clip eine
+Audiospur hat (bei echtem Kamera-/Handymaterial praktisch immer der Fall).
+Ein komplett stummer Clip lässt den Render mit einer klaren FFmpeg-Fehler-
+meldung fehlschlagen statt automatisch auf Video-only umzuschalten.
 
 ## Deployment
 

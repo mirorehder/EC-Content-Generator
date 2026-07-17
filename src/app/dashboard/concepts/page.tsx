@@ -9,6 +9,10 @@ import { prisma } from "@/lib/prisma";
 import { TREND_FORMATS } from "@/lib/trend-formats";
 import type { ShotlistScene } from "./actions";
 
+// FFmpeg-Rendering läuft synchron innerhalb der Server Action — genug Zeit
+// für ein paar Clips einräumen (Vercel-Standard wäre sonst zu knapp).
+export const maxDuration = 60;
+
 export default async function ConceptsPage() {
   const session = await auth();
 
