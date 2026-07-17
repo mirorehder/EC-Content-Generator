@@ -1,6 +1,6 @@
 import type { Part } from "@google/genai";
 
-import { getGeminiClient } from "@/lib/gemini";
+import { getGeminiClient, withGeminiRetry } from "@/lib/gemini";
 
 // Alias, not a pinned dated model — avoids breaking again when Google
 // retires a specific version (as it did with gemini-2.5-flash).
@@ -57,14 +57,16 @@ export async function analyzeClipsVision(
     text: "Beschreibe jedes der obigen Vorschaubilder kurz. Gib für jede Clip-ID genau einen Eintrag zurück.",
   });
 
-  const response = await gemini.models.generateContent({
-    model: MODEL,
-    contents: parts,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withGeminiRetry(() =>
+    gemini.models.generateContent({
+      model: MODEL,
+      contents: parts,
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+      },
+    })
+  );
 
   if (!response.text) {
     throw new Error("Keine Textantwort von Gemini erhalten.");

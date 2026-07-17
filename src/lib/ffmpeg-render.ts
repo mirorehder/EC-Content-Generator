@@ -6,9 +6,11 @@ import { promisify } from "node:util";
 
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 
-import { getDriveMediaStream } from "@/lib/google-drive";
-
 const execFileAsync = promisify(execFile);
+
+function driveMediaUrl(driveFileId: string): string {
+  return `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`;
+}
 
 const FONT_PATH = path.join(process.cwd(), "assets/fonts/DejaVuSans-Bold.ttf");
 const OUTPUT_WIDTH = 1080;
@@ -40,21 +42,20 @@ export interface RenderScene {
   timingSeconds: number;
 }
 
-async function downloadClip(accessToken: string, driveFileId: string, destPath: string) {
-  const media = await getDriveMediaStream(accessToken, driveFileId);
-  const chunks: Buffer[] = [];
-  for await (const chunk of media.stream) {
-    chunks.push(chunk as Buffer);
-  }
-  await writeFile(destPath, Buffer.concat(chunks));
-}
-
 /**
  * Concatenates the given clips (trimmed to each scene's timing) into one
  * vertical (1080x1920) video and burns the caption in as a text overlay.
- * Assumes every clip has an audio stream — raw camera/phone footage does in
- * practice, but a silent source clip will make ffmpeg fail with a clear
- * "Stream specifier ':a' ... matches no streams" error.
+ *
+ * Clips are streamed straight from Drive into ffmpeg (via `-headers` +
+ * an authenticated URL) instead of being downloaded to disk first —
+ * source footage can be several minutes of 4K per file, which blew past
+ * Vercel's ~512MB /tmp budget when we wrote whole clips to disk just to
+ * use a few trimmed seconds of each. Only the small rendered output is
+ * ever written to disk now.
+ *
+ * Assumes every clip has an audio stream — raw camera/phone footage does
+ * in practice, but a silent source clip will make ffmpeg fail with a
+ * clear "Stream specifier ':a' ... matches no streams" error.
  */
 export async function renderShotlist(
   accessToken: string,
@@ -68,19 +69,21 @@ export async function renderShotlist(
   const workDir = await mkdtemp(path.join(tmpdir(), "ec-render-"));
 
   try {
-    const inputPaths = scenes.map((_, i) => path.join(workDir, `clip-${i}.mp4`));
-    await Promise.all(
-      scenes.map((scene, i) => downloadClip(accessToken, scene.driveFileId, inputPaths[i]))
-    );
-
     const captionPath = path.join(workDir, "caption.txt");
     await writeFile(captionPath, wrapCaption(caption, CAPTION_CHARS_PER_LINE), "utf-8");
 
     const outputPath = path.join(workDir, "output.mp4");
 
     const args: string[] = ["-y"];
-    for (const [i, scene] of scenes.entries()) {
-      args.push("-t", String(Math.max(scene.timingSeconds, MIN_SCENE_SECONDS)), "-i", inputPaths[i]);
+    for (const scene of scenes) {
+      args.push(
+        "-headers",
+        `Authorization: Bearer ${accessToken}\r\n`,
+        "-t",
+        String(Math.max(scene.timingSeconds, MIN_SCENE_SECONDS)),
+        "-i",
+        driveMediaUrl(scene.driveFileId)
+      );
     }
 
     const perClipFilters = scenes

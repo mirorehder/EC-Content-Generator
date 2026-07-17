@@ -12,6 +12,25 @@ export function getGeminiClient(): GoogleGenAI | null {
   return client;
 }
 
+/**
+ * Gemini's free tier returns a 503 "model is currently experiencing high
+ * demand" fairly often — transient overload, not a real failure. Retry a
+ * couple of times with a short backoff before giving up.
+ */
+export async function withGeminiRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const delaysMs = [1000, 3000];
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const isOverloaded = error instanceof Error && /"code":503/.test(error.message);
+      if (!isOverloaded || attempt >= delaysMs.length) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+  }
+}
+
 const EDGECHASE_SYSTEM_PROMPT = `Du schreibst Hook-Texte und Captions für EdgeChase, eine Sport-/Streetwear-Marke.
 Ton: direkt, energiegeladen, kurz. Keine Ausrufezeichen-Häufung, keine generischen Marketing-Phrasen.
 Antworte ausschließlich mit kompaktem JSON im Format {"caption": string, "hashtags": string[]}.`;
@@ -32,14 +51,16 @@ export async function suggestCaption(
     throw new Error("GEMINI_API_KEY ist nicht gesetzt.");
   }
 
-  const response = await gemini.models.generateContent({
-    model: MODEL,
-    contents: `Trend-Format: ${trendTitle}\nHook-Vorlage: ${hook}\nClips in dieser Shotlist: ${clipNames.join(", ") || "(keine)"}\n\nSchreibe eine passende Caption mit 3-5 Hashtags.`,
-    config: {
-      systemInstruction: EDGECHASE_SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withGeminiRetry(() =>
+    gemini.models.generateContent({
+      model: MODEL,
+      contents: `Trend-Format: ${trendTitle}\nHook-Vorlage: ${hook}\nClips in dieser Shotlist: ${clipNames.join(", ") || "(keine)"}\n\nSchreibe eine passende Caption mit 3-5 Hashtags.`,
+      config: {
+        systemInstruction: EDGECHASE_SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+      },
+    })
+  );
 
   if (!response.text) {
     throw new Error("Keine Textantwort von Gemini erhalten.");
@@ -78,14 +99,16 @@ export async function suggestMatchingClips(
     })
     .join("\n");
 
-  const response = await gemini.models.generateContent({
-    model: MODEL,
-    contents: `Trend-Format: ${trendTitle}\nHook-Vorlage: ${hook}\nSzenen-Struktur:\n${structure.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nVerfügbare Clips:\n${clipList || "(keine)"}\n\nWähle die ${structure.length} am besten passenden Clips aus (weniger, falls nicht genug verfügbar sind).`,
-    config: {
-      systemInstruction: CLIP_MATCH_SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withGeminiRetry(() =>
+    gemini.models.generateContent({
+      model: MODEL,
+      contents: `Trend-Format: ${trendTitle}\nHook-Vorlage: ${hook}\nSzenen-Struktur:\n${structure.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nVerfügbare Clips:\n${clipList || "(keine)"}\n\nWähle die ${structure.length} am besten passenden Clips aus (weniger, falls nicht genug verfügbar sind).`,
+      config: {
+        systemInstruction: CLIP_MATCH_SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+      },
+    })
+  );
 
   if (!response.text) {
     throw new Error("Keine Textantwort von Gemini erhalten.");
