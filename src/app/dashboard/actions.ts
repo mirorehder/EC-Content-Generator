@@ -42,6 +42,7 @@ export async function syncDriveFolder(
             durationMs: file.durationMs,
             thumbnailLink: file.thumbnailLink,
             webViewLink: file.webViewLink,
+            category: file.category,
           },
           update: {
             name: file.name,
@@ -49,6 +50,7 @@ export async function syncDriveFolder(
             durationMs: file.durationMs,
             thumbnailLink: file.thumbnailLink,
             webViewLink: file.webViewLink,
+            category: file.category,
           },
         })
       )

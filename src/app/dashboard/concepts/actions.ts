@@ -107,7 +107,12 @@ export async function suggestClipsForConceptAction(
       format.title,
       format.hook,
       format.structure,
-      refreshedClips.map((clip) => ({ id: clip.id, name: clip.name, summary: clip.visionSummary }))
+      refreshedClips.map((clip) => ({
+        id: clip.id,
+        name: clip.name,
+        summary: clip.visionSummary,
+        category: clip.category,
+      }))
     );
 
     const validClipIds = suggestedClipIds.filter((id) =>

@@ -76,7 +76,10 @@ export default async function DashboardPage() {
                   )}
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{clip.name}</p>
-                    <p className="text-xs text-muted-foreground">{formatDuration(clip.durationMs)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDuration(clip.durationMs)}
+                      {clip.category ? ` · ${clip.category}` : ""}
+                    </p>
                   </div>
                 </li>
               ))}

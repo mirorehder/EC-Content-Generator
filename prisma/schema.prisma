@@ -21,6 +21,8 @@ model Clip {
   thumbnailLink String?
   webViewLink   String?
   visionSummary String?
+  /// Name of the Drive subfolder the clip was found in (e.g. "Parkour-Bangers").
+  category      String?
   createdAt     DateTime @default(now())
   syncedAt      DateTime @updatedAt
 }

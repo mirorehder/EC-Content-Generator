@@ -61,6 +61,7 @@ export interface ClipForMatching {
   id: string;
   name: string;
   summary: string | null;
+  category: string | null;
 }
 
 export async function suggestMatchingClips(
@@ -76,7 +77,11 @@ export async function suggestMatchingClips(
   }
 
   const clipList = clips
-    .map((clip) => `- ${clip.id}: ${clip.name}${clip.summary ? ` — ${clip.summary}` : ""}`)
+    .map((clip) => {
+      const category = clip.category ? ` [Ordner: ${clip.category}]` : "";
+      const summary = clip.summary ? ` — ${clip.summary}` : "";
+      return `- ${clip.id}: ${clip.name}${category}${summary}`;
+    })
     .join("\n");
 
   const response = await anthropic.messages.create({
