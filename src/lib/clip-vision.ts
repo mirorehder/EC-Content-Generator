@@ -1,8 +1,10 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type { Part } from "@google/genai";
 
-import { getAnthropicClient } from "@/lib/anthropic";
+import { getGeminiClient } from "@/lib/gemini";
 
-const SYSTEM_PROMPT = `Du beschreibst kurz und knapp, was in Video-Vorschaubildern zu sehen ist (Motiv, Setting, Action, Stimmung) — für Sport-/Streetwear-Content von EdgeChase. Antworte ausschließlich mit kompaktem JSON im Format {"summaries": [{"clipId": string, "summary": string}]}, ohne weiteren Text. Jede Zusammenfassung maximal ein Satz.`;
+const MODEL = "gemini-2.5-flash";
+
+const SYSTEM_PROMPT = `Du beschreibst kurz und knapp, was in Video-Vorschaubildern zu sehen ist (Motiv, Setting, Action, Stimmung) — für Sport-/Streetwear-Content von EdgeChase. Antworte ausschließlich mit kompaktem JSON im Format {"summaries": [{"clipId": string, "summary": string}]}. Jede Zusammenfassung maximal ein Satz.`;
 
 interface ClipThumbnail {
   id: string;
@@ -13,7 +15,7 @@ interface ClipThumbnail {
 async function fetchThumbnailAsBase64(
   thumbnailLink: string,
   accessToken: string
-): Promise<{ data: string; mediaType: string } | null> {
+): Promise<{ data: string; mimeType: string } | null> {
   const res = await fetch(thumbnailLink, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -21,65 +23,52 @@ async function fetchThumbnailAsBase64(
   if (!res.ok) return null;
 
   const buffer = Buffer.from(await res.arrayBuffer());
-  const mediaType = res.headers.get("content-type") ?? "image/jpeg";
+  const mimeType = res.headers.get("content-type") ?? "image/jpeg";
 
-  return { data: buffer.toString("base64"), mediaType };
+  return { data: buffer.toString("base64"), mimeType };
 }
 
 export async function analyzeClipsVision(
   accessToken: string,
   clips: ClipThumbnail[]
 ): Promise<Record<string, string>> {
-  const anthropic = getAnthropicClient();
-  if (!anthropic) {
-    throw new Error("ANTHROPIC_API_KEY ist nicht gesetzt.");
+  const gemini = getGeminiClient();
+  if (!gemini) {
+    throw new Error("GEMINI_API_KEY ist nicht gesetzt.");
   }
 
-  const content: (Anthropic.TextBlockParam | Anthropic.ImageBlockParam)[] = [];
+  const parts: Part[] = [];
 
   for (const clip of clips) {
     const image = await fetchThumbnailAsBase64(clip.thumbnailLink, accessToken);
     if (!image) continue;
 
-    content.push({ type: "text", text: `Clip-ID: ${clip.id} (Dateiname: ${clip.name})` });
-    content.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: image.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-        data: image.data,
-      },
-    });
+    parts.push({ text: `Clip-ID: ${clip.id} (Dateiname: ${clip.name})` });
+    parts.push({ inlineData: { data: image.data, mimeType: image.mimeType } });
   }
 
-  if (content.length === 0) {
+  if (parts.length === 0) {
     return {};
   }
 
-  content.push({
-    type: "text",
+  parts.push({
     text: "Beschreibe jedes der obigen Vorschaubilder kurz. Gib für jede Clip-ID genau einen Eintrag zurück.",
   });
 
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content }];
-
-  const response = await anthropic.messages.create({
-    model: "claude-opus-4-8",
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    messages,
+  const response = await gemini.models.generateContent({
+    model: MODEL,
+    contents: parts,
+    config: {
+      systemInstruction: SYSTEM_PROMPT,
+      responseMimeType: "application/json",
+    },
   });
 
-  if (response.stop_reason === "refusal") {
-    throw new Error("Anthropic hat die Bildanalyse abgelehnt.");
+  if (!response.text) {
+    throw new Error("Keine Textantwort von Gemini erhalten.");
   }
 
-  const textBlock = response.content.find((block) => block.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Keine Textantwort von Anthropic erhalten.");
-  }
-
-  const parsed = JSON.parse(textBlock.text) as {
+  const parsed = JSON.parse(response.text) as {
     summaries: { clipId: string; summary: string }[];
   };
 

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import { Prisma } from "@/generated/prisma/client";
-import { suggestCaption, suggestMatchingClips } from "@/lib/anthropic";
+import { suggestCaption, suggestMatchingClips } from "@/lib/gemini";
 import { analyzeClipsVision } from "@/lib/clip-vision";
 import { prisma } from "@/lib/prisma";
 import { TREND_FORMATS } from "@/lib/trend-formats";

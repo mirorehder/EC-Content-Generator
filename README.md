@@ -22,11 +22,11 @@ Aktuell umgesetzt:
   `/dashboard/trends` — aktuell mit Platzhalter-Daten, siehe Hinweis unten
 - **Schritt 4** — Konzept-Generator: verknüpft ein Trend-Format mit
   ausgewählten Clips zu einer Shotlist (JSON: Szenen, Timing, Caption,
-  Hashtags) unter `/dashboard/concepts`. Optional generiert die Anthropic
-  API (`claude-opus-4-8`) einen Caption-/Hook-Vorschlag im EdgeChase-Ton —
-  ohne `ANTHROPIC_API_KEY` bleibt das Feld einfach manuell ausfüllbar.
+  Hashtags) unter `/dashboard/concepts`. Optional generiert die Gemini
+  API (`gemini-2.5-flash`) einen Caption-/Hook-Vorschlag im EdgeChase-Ton —
+  ohne `GEMINI_API_KEY` bleibt das Feld einfach manuell ausfüllbar.
   Zusätzlich: "Passende Clips vorschlagen" analysiert die Vorschaubilder
-  noch nicht analysierter Clips per Claude Vision (Ergebnis wird pro Clip
+  noch nicht analysierter Clips per Gemini Vision (Ergebnis wird pro Clip
   in `visionSummary` gecacht) und schlägt darauf basierend eine passende
   Clip-Auswahl zum gewählten Hook-Format vor.
 - **Schritt 5** — Rendering-Pipeline: `remotion/ShotlistVideo.tsx` ist eine
@@ -70,9 +70,12 @@ umgesetzt.
      Connection-String braucht).
    - `DRIVE_FOLDER_ID`: die ID des freigegebenen Google-Drive-Ordners (aus der
      Freigabe-URL, z. B. `https://drive.google.com/drive/folders/<ID>`).
-   - `ANTHROPIC_API_KEY`: optional, nur für die KI-Caption-Vorschläge im
-     Konzept-Generator. Ohne Key funktioniert der Konzept-Generator trotzdem
-     (Caption/Hashtags einfach manuell eintragen).
+   - `GEMINI_API_KEY`: optional, für die KI-Caption-Vorschläge und das
+     Vision-basierte Clip-Matching im Konzept-Generator. Kostenloser Key ohne
+     Kreditkarte (Stand: Erstellung dieses Dokuments) unter
+     [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ohne
+     Key funktioniert der Konzept-Generator trotzdem (Caption/Hashtags/Clips
+     einfach manuell eintragen bzw. auswählen).
    - `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_SERVE_URL`, `AWS_REGION`,
      `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: für die
      Rendering-Pipeline — siehe "Remotion Lambda einrichten" unten. Ohne
