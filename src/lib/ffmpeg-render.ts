@@ -114,9 +114,9 @@ export async function renderShotlist(
       "-c:v",
       "libx264",
       "-preset",
-      "veryfast",
+      "ultrafast",
       "-crf",
-      "23",
+      "26",
       "-c:a",
       "aac",
       "-b:a",
@@ -126,7 +126,19 @@ export async function renderShotlist(
       outputPath
     );
 
-    await execFileAsync(ffmpeg.path, args, { maxBuffer: 1024 * 1024 * 64 });
+    try {
+      await execFileAsync(ffmpeg.path, args, {
+        maxBuffer: 1024 * 1024 * 64,
+        // Fail with a clear error before Vercel's own function timeout would
+        // kill the whole invocation without one.
+        timeout: 270_000,
+      });
+    } catch (error) {
+      if (error && typeof error === "object" && "killed" in error && error.killed) {
+        throw new Error("FFmpeg-Timeout — das Rendern hat zu lange gedauert.");
+      }
+      throw error;
+    }
 
     return await readFile(outputPath);
   } finally {

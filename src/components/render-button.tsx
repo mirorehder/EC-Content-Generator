@@ -13,11 +13,19 @@ export function RenderButton({ conceptId }: { conceptId: string }) {
   function handleStart() {
     setErrorMessage(null);
     startTransition(async () => {
-      const result = await startRenderAction(conceptId);
-      if (result.ok && result.outputUrl) {
-        setOutputUrl(result.outputUrl);
-      } else {
-        setErrorMessage(result.message ?? "Render konnte nicht gestartet werden.");
+      try {
+        const result = await startRenderAction(conceptId);
+        if (result.ok && result.outputUrl) {
+          setOutputUrl(result.outputUrl);
+        } else {
+          setErrorMessage(result.message ?? "Render konnte nicht gestartet werden.");
+        }
+      } catch {
+        // Server-seitiger Abbruch ohne strukturierte Antwort (z.B. Vercel-
+        // Funktions-Timeout bei sehr langen/großen Clips).
+        setErrorMessage(
+          "Render abgebrochen — vermutlich hat es zu lange gedauert (großes Rohmaterial). Kürzere Szenen-Timings oder kleinere Clips probieren."
+        );
       }
     });
   }

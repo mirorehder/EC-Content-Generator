@@ -9,9 +9,12 @@ import { prisma } from "@/lib/prisma";
 import { TREND_FORMATS } from "@/lib/trend-formats";
 import type { ShotlistScene } from "./actions";
 
-// FFmpeg-Rendering läuft synchron innerhalb der Server Action — genug Zeit
-// für ein paar Clips einräumen (Vercel-Standard wäre sonst zu knapp).
-export const maxDuration = 60;
+// FFmpeg-Rendering läuft synchron innerhalb der Server Action und lädt
+// dabei Rohmaterial von Drive (teils mehrminütiges 4K) + kodiert es neu —
+// 60s reichten für echtes Kameramaterial nicht. Vercel deckelt das je nach
+// Plan ohnehin (Hobby z.B. bei 60s ohne Fluid Compute), aber ein höherer
+// Wert schadet nicht und nutzt es aus, wo verfügbar.
+export const maxDuration = 300;
 
 export default async function ConceptsPage() {
   const session = await auth();
