@@ -13,8 +13,11 @@ function driveMediaUrl(driveFileId: string): string {
 }
 
 const FONT_PATH = path.join(process.cwd(), "assets/fonts/DejaVuSans-Bold.ttf");
-const OUTPUT_WIDTH = 1080;
-const OUTPUT_HEIGHT = 1920;
+// Bewusst unter "vollen" 1080x1920 — Vercel Hobby gibt Serverless-
+// Functions nur sehr wenig CPU, und Skalieren/Kodieren skaliert mit der
+// Pixelzahl. 720x1280 ist für Social-Media-Zwecke immer noch gut genug.
+const OUTPUT_WIDTH = 720;
+const OUTPUT_HEIGHT = 1280;
 const FPS = 30;
 const MIN_SCENE_SECONDS = 0.5;
 const CAPTION_CHARS_PER_LINE = 26;
@@ -134,10 +137,19 @@ export async function renderShotlist(
         timeout: 270_000,
       });
     } catch (error) {
+      const stderrTail =
+        error && typeof error === "object" && "stderr" in error && typeof error.stderr === "string"
+          ? error.stderr.trim().split("\n").slice(-3).join(" | ")
+          : null;
+
       if (error && typeof error === "object" && "killed" in error && error.killed) {
-        throw new Error("FFmpeg-Timeout — das Rendern hat zu lange gedauert.");
+        throw new Error(
+          `FFmpeg-Timeout — das Rendern hat zu lange gedauert.${stderrTail ? ` Letzter Stand: ${stderrTail}` : ""}`
+        );
       }
-      throw error;
+      throw error instanceof Error && stderrTail
+        ? new Error(`${error.message} — ${stderrTail}`)
+        : error;
     }
 
     return await readFile(outputPath);
