@@ -30,13 +30,16 @@ Aktuell umgesetzt:
   in `visionSummary` gecacht) und schlägt darauf basierend eine passende
   Clip-Auswahl zum gewählten Hook-Format vor.
 - **Schritt 5** — Rendering-Pipeline: Der "Video rendern"-Button im
-  Konzept-Generator lädt die ausgewählten Clips aus Drive, hängt sie per
-  FFmpeg aneinander (vertikal auf 1080×1920 normalisiert, je Szene auf die
-  Timing-Länge getrimmt) und brennt die Caption als Text-Overlay ein. Das
-  fertige Video landet in Vercel Blob Storage und wird als Download-Link
-  angezeigt. Kein AWS/Remotion nötig — bewusst einfach gehalten (kein
-  Crossfade, keine aufwändigen Übergänge), siehe "Video-Rendering
-  einrichten" unten.
+  Konzept-Generator stößt einen GitHub-Actions-Workflow
+  (`.github/workflows/render.yml`) an, der die ausgewählten Clips aus Drive
+  lädt, per FFmpeg aneinanderhängt (vertikal auf 1080×1920 normalisiert, je
+  Szene auf die Timing-Länge getrimmt), die Caption als Text-Overlay
+  einbrennt und das Ergebnis nach Vercel Blob Storage hochlädt. Das Rendern
+  läuft bewusst *nicht* in der Vercel-Funktion selbst — Vercels Hobby-Plan
+  gibt Functions zu wenig CPU, um 4K-/HEVC-Rohmaterial (typisch bei
+  iPhone-Aufnahmen) in vertretbarer Zeit zu dekodieren; ein
+  GitHub-Actions-Runner hat dafür genug Leistung. Details und Setup siehe
+  "Video-Rendering einrichten" unten.
 
 Alle fünf Schritte aus der Architektur-Spezifikation sind damit im Code
 umgesetzt.
@@ -76,10 +79,11 @@ umgesetzt.
      [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ohne
      Key funktioniert der Konzept-Generator trotzdem (Caption/Hashtags/Clips
      einfach manuell eintragen bzw. auswählen).
-   - `BLOB_READ_WRITE_TOKEN`: für die Rendering-Pipeline, nur lokal nötig —
-     siehe "Video-Rendering einrichten" unten. Ohne diese Variable
-     funktioniert die App weiterhin, der "Video rendern"-Button meldet dann
-     nur, dass der Video-Speicher noch nicht konfiguriert ist.
+   - `RENDER_GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`,
+     `RENDER_CALLBACK_SECRET`: für die Rendering-Pipeline — siehe
+     "Video-Rendering einrichten" unten. Ohne diese Variablen funktioniert
+     die App weiterhin, der "Video rendern"-Button meldet dann nur, dass
+     das Rendering noch nicht konfiguriert ist.
 
 3. Datenbank-Schema anwenden:
 
@@ -104,27 +108,48 @@ umgesetzt.
 
 ## Video-Rendering einrichten
 
-Das Rendering (Clips aneinanderhängen + Caption einbrennen) läuft direkt in
-einer Vercel Server Action mit FFmpeg (`@ffmpeg-installer/ffmpeg`, kein
-externer Dienst nötig) und braucht nur einen Ort, um das fertige Video
-abzulegen: **Vercel Blob Storage**.
+Das eigentliche FFmpeg-Rendern läuft **nicht** in der Vercel-Funktion,
+sondern in einem GitHub-Actions-Workflow (`.github/workflows/render.yml`):
+Vercels Hobby-Plan gibt Functions zu wenig CPU, um 4K-/HEVC-Rohmaterial
+(z.B. iPhone-Aufnahmen) in vertretbarer Zeit zu dekodieren — ein normaler
+GitHub-Actions-Runner (2 vCPUs) schafft das ohne Weiteres.
 
-1. Im Vercel-Dashboard: **Storage** → **Create Database** → **Blob** → mit
-   diesem Projekt verknüpfen. Vercel setzt daraufhin automatisch
-   `BLOB_STORE_ID` (+ einen automatisch verwalteten OIDC-Token zur
-   Laufzeit) als Environment Variables im Projekt — kein AWS-Account,
-   keine IAM-Policies, kein separates Deployment nötig. Ein Redeploy nach
-   dem Verknüpfen ist nötig, damit die neuen Variablen greifen.
-2. Für lokale Entwicklung (kein OIDC-Token vorhanden): im
-   Blob-Store-Dashboard einen klassischen Read-Write-Token erzeugen und in
-   `.env.local` als `BLOB_READ_WRITE_TOKEN` eintragen.
+Ablauf: Der "Video rendern"-Button löst per GitHub-API einen
+`workflow_dispatch` aus → der Workflow lädt die Clips direkt von Drive,
+rendert mit FFmpeg, lädt das Ergebnis nach Vercel Blob hoch und meldet sich
+über einen Webhook (`/api/render-callback`) mit dem Ergebnis zurück. Die
+Konzept-Seite pollt den Status, bis er fertig ist.
 
-Danach funktioniert der "Video rendern"-Button im Konzept-Generator direkt:
-Clips werden aus Drive geladen, auf 1080×1920 normalisiert, auf die
-jeweilige Szenen-Länge getrimmt, aneinandergehängt und die Caption als
-Text-Overlay eingebrannt (Font: DejaVu Sans Bold, liegt unter
-`assets/fonts/`). Das Ergebnis wird nach Vercel Blob hochgeladen und als
-Download-Link angezeigt.
+Setup (einmalig, alles in GitHub/Vercel, kein AWS):
+
+1. **GitHub Personal Access Token** erzeugen: GitHub → Profilbild →
+   **Settings** → **Developer settings** → **Personal access tokens** →
+   **Tokens (classic)** → **Generate new token**. Scope: `repo` (bei
+   privatem Repo nötig) + `workflow`. Token kopieren.
+2. **Vercel-Dashboard** → dieses Projekt → **Settings** → **Environment
+   Variables** → folgende hinzufügen:
+   - `RENDER_GITHUB_TOKEN`: der Token aus Schritt 1
+   - `GITHUB_REPO_OWNER`: `mirorehder`
+   - `GITHUB_REPO_NAME`: `EC-Content-Generator`
+   - `RENDER_CALLBACK_SECRET`: ein beliebiger langer Zufallsstring (z.B.
+     mit `openssl rand -hex 32` erzeugen) — dient nur dazu, dass der
+     Callback-Endpunkt Aufrufe von GitHub Actions erkennt und keine
+     fremden.
+3. **GitHub-Repo** → **Settings** → **Secrets and variables** →
+   **Actions** → **New repository secret**, dreimal:
+   - `BLOB_READ_WRITE_TOKEN`: klassischer Token aus dem
+     Blob-Store-Dashboard (Storage → Blob-Store → "Create token", **nicht**
+     der OIDC-Automatismus — Actions-Runner sind kein Vercel-Kontext)
+   - `RENDER_CALLBACK_SECRET`: **derselbe** Wert wie in Schritt 2
+   - `APP_URL`: die Produktions-URL der App (z.B.
+     `https://ec-content-generator.vercel.app`, ohne Slash am Ende)
+4. Redeploy auf Vercel, damit die neuen Variablen greifen.
+
+Danach funktioniert der "Video rendern"-Button: Clips werden aus Drive
+geladen, auf 1080×1920 normalisiert, auf die jeweilige Szenen-Länge
+getrimmt, aneinandergehängt und die Caption als Text-Overlay eingebrannt
+(Font: DejaVu Sans Bold, liegt unter `assets/fonts/`). Fortschritt lässt
+sich auch direkt im GitHub-Repo unter **Actions** mitverfolgen.
 
 **Bekannte Einschränkung:** Es wird angenommen, dass jeder Clip eine
 Audiospur hat (bei echtem Kamera-/Handymaterial praktisch immer der Fall).

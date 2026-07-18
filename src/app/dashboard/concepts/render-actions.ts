@@ -1,33 +1,25 @@
 "use server";
 
-import { put } from "@vercel/blob";
 import { revalidatePath } from "next/cache";
 
-import { renderShotlist } from "@/lib/ffmpeg-render";
+import { isGithubRenderConfigured, triggerGithubRender } from "@/lib/github-render";
 import { prisma } from "@/lib/prisma";
 import { requireSession, type ShotlistScene } from "./actions";
 
-function isBlobConfigured(): boolean {
-  // Klassische Verbindung setzt BLOB_READ_WRITE_TOKEN; ein per Vercel-
-  // Dashboard verknüpfter Store authentifiziert stattdessen automatisch
-  // über einen OIDC-Token, sichtbar nur an BLOB_STORE_ID.
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
-}
-
 export interface StartRenderResult {
   ok: boolean;
-  outputUrl?: string;
+  renderId?: string;
   message?: string;
 }
 
 export async function startRenderAction(conceptId: string): Promise<StartRenderResult> {
   const session = await requireSession();
 
-  if (!isBlobConfigured()) {
+  if (!isGithubRenderConfigured()) {
     return {
       ok: false,
       message:
-        "Video-Speicher (Vercel Blob) ist noch nicht eingerichtet. Siehe README, Abschnitt \"Video-Rendering einrichten\".",
+        'Video-Rendering ist noch nicht eingerichtet. Siehe README, Abschnitt "Video-Rendering einrichten".',
     };
   }
 
@@ -46,34 +38,53 @@ export async function startRenderAction(conceptId: string): Promise<StartRenderR
   });
   const driveFileIdByClipId = new Map(clips.map((clip) => [clip.id, clip.driveFileId]));
 
+  const renderScenes = scenes.map((scene) => {
+    const driveFileId = driveFileIdByClipId.get(scene.clipId);
+    if (!driveFileId) throw new Error(`Clip ${scene.clipName} nicht gefunden.`);
+    return { driveFileId, timingSeconds: scene.timingSeconds };
+  });
+
+  const render = await prisma.render.create({
+    data: { conceptId, status: "pending" },
+  });
+
   try {
-    const videoBuffer = await renderShotlist(
+    await triggerGithubRender(
+      render.id,
       session.accessToken,
-      scenes.map((scene) => {
-        const driveFileId = driveFileIdByClipId.get(scene.clipId);
-        if (!driveFileId) throw new Error(`Clip ${scene.clipName} nicht gefunden.`);
-        return { driveFileId, timingSeconds: scene.timingSeconds };
-      }),
+      renderScenes,
       `${concept.caption} ${concept.hashtags.join(" ")}`.trim()
     );
-
-    const blob = await put(`renders/${conceptId}-${Date.now()}.mp4`, videoBuffer, {
-      access: "public",
-      contentType: "video/mp4",
-    });
-
-    await prisma.render.create({
-      data: { conceptId, status: "done", outputUrl: blob.url },
-    });
-
-    revalidatePath("/dashboard/concepts");
-    return { ok: true, outputUrl: blob.url };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
-    await prisma.render.create({
-      data: { conceptId, status: "error", errorMessage: detail },
+    await prisma.render.update({
+      where: { id: render.id },
+      data: { status: "error", errorMessage: detail },
     });
-    revalidatePath("/dashboard/concepts");
-    return { ok: false, message: `Render fehlgeschlagen: ${detail}` };
+    return { ok: false, message: `Render konnte nicht gestartet werden: ${detail}` };
   }
+
+  revalidatePath("/dashboard/concepts");
+  return { ok: true, renderId: render.id };
+}
+
+export interface RenderState {
+  id: string;
+  status: string;
+  outputUrl: string | null;
+  errorMessage: string | null;
+}
+
+export async function getRenderStatusAction(renderId: string): Promise<RenderState | null> {
+  await requireSession();
+
+  const render = await prisma.render.findUnique({ where: { id: renderId } });
+  if (!render) return null;
+
+  return {
+    id: render.id,
+    status: render.status,
+    outputUrl: render.outputUrl,
+    errorMessage: render.errorMessage,
+  };
 }

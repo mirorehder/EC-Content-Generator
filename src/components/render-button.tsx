@@ -1,51 +1,79 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { startRenderAction } from "@/app/dashboard/concepts/render-actions";
+import {
+  getRenderStatusAction,
+  startRenderAction,
+  type RenderState,
+} from "@/app/dashboard/concepts/render-actions";
 import { Button } from "@/components/ui/button";
 
-export function RenderButton({ conceptId }: { conceptId: string }) {
-  const [isPending, startTransition] = useTransition();
-  const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+const POLL_INTERVAL_MS = 4000;
 
-  function handleStart() {
-    setErrorMessage(null);
-    startTransition(async () => {
-      try {
-        const result = await startRenderAction(conceptId);
-        if (result.ok && result.outputUrl) {
-          setOutputUrl(result.outputUrl);
-        } else {
-          setErrorMessage(result.message ?? "Render konnte nicht gestartet werden.");
-        }
-      } catch {
-        // Server-seitiger Abbruch ohne strukturierte Antwort (z.B. Vercel-
-        // Funktions-Timeout bei sehr langen/großen Clips).
-        setErrorMessage(
-          "Render abgebrochen — vermutlich hat es zu lange gedauert (großes Rohmaterial). Kürzere Szenen-Timings oder kleinere Clips probieren."
-        );
+export function RenderButton({ conceptId }: { conceptId: string }) {
+  const [render, setRender] = useState<RenderState | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
+  const [startMessage, setStartMessage] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  function startPolling(renderId: string) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const state = await getRenderStatusAction(renderId);
+      if (!state) return;
+      setRender(state);
+      if (state.status === "done" || state.status === "error") {
+        if (pollRef.current) clearInterval(pollRef.current);
       }
-    });
+    }, POLL_INTERVAL_MS);
   }
+
+  async function handleStart() {
+    setIsStarting(true);
+    setStartMessage(null);
+    const result = await startRenderAction(conceptId);
+    setIsStarting(false);
+
+    if (!result.ok || !result.renderId) {
+      setStartMessage(result.message ?? "Render konnte nicht gestartet werden.");
+      return;
+    }
+
+    setRender({ id: result.renderId, status: "pending", outputUrl: null, errorMessage: null });
+    startPolling(result.renderId);
+  }
+
+  const isActive = render && render.status === "pending";
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
-        <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={handleStart}>
-          {isPending ? "Rendert…" : "Video rendern"}
+        <Button type="button" variant="outline" size="sm" disabled={isStarting || !!isActive} onClick={handleStart}>
+          {isActive ? "Rendert…" : "Video rendern"}
         </Button>
-        {isPending && (
-          <span className="text-sm text-muted-foreground">Clips werden zusammengeschnitten…</span>
+        {isActive && (
+          <span className="text-sm text-muted-foreground">
+            Läuft über GitHub Actions, kann ein bis mehrere Minuten dauern…
+          </span>
         )}
       </div>
 
-      {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
+      {startMessage && <p className="text-sm text-destructive">{startMessage}</p>}
 
-      {outputUrl && (
+      {render?.status === "error" && (
+        <p className="text-sm text-destructive">{render.errorMessage}</p>
+      )}
+
+      {render?.status === "done" && render.outputUrl && (
         <a
-          href={outputUrl}
+          href={render.outputUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm font-medium text-primary underline"
