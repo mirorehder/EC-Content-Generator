@@ -1,32 +1,41 @@
 "use server";
 
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
 import { prisma } from "@/lib/prisma";
+import { createRenderToken } from "@/lib/render-tokens";
+import { renderShotlistVideo } from "@/lib/remotion-render";
+import type { ShotlistVideoProps } from "../../../../remotion/ShotlistVideo";
 import { requireSession, type ShotlistScene } from "./actions";
 
-export interface RenderJobScene {
-  driveFileId: string;
-  clipName: string;
-  timingSeconds: number;
+export interface StartRenderResult {
+  ok: boolean;
+  downloadUrl?: string;
+  message?: string;
 }
 
-export interface RenderJob {
-  ok: boolean;
-  message?: string;
-  /** Google-Zugriffstoken der eigenen Session — der Browser lädt die Clips damit direkt von Drive. */
-  accessToken?: string;
-  scenes?: RenderJobScene[];
-  caption?: string;
-  fileBaseName?: string;
+function getBaseUrl(): string {
+  const url = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
 /**
- * Liefert dem Browser alles, was er zum clientseitigen Rendern braucht.
- * Das eigentliche Schneiden passiert komplett im Browser
- * (src/lib/browser-render.ts) — hier wird nur autorisiert und aufgelöst,
- * welche Drive-Dateien zu den Szenen gehören.
+ * Rendert synchron mit Remotion auf dem Rechner, auf dem die App läuft —
+ * gedacht für den lokalen Betrieb (voller CPU-Zugriff, kein Zeitlimit).
+ * Auf Vercel ist der Button bewusst deaktiviert: die Hobby-Plan-CPU
+ * schafft 4K-/HEVC-Material nicht (gemessen ~4% Echtzeit-Geschwindigkeit).
  */
-export async function getRenderJobAction(conceptId: string): Promise<RenderJob> {
+export async function startRenderAction(conceptId: string): Promise<StartRenderResult> {
   const session = await requireSession();
+
+  if (process.env.VERCEL) {
+    return {
+      ok: false,
+      message:
+        'Rendern ist in der Online-Version deaktiviert (zu wenig Server-CPU). Bitte die App dafür lokal starten — siehe README, Abschnitt "Lokal auf dem eigenen Rechner".',
+    };
+  }
 
   if (!session.accessToken) {
     return { ok: false, message: "Kein Google-Zugriffstoken vorhanden. Bitte neu anmelden." };
@@ -41,29 +50,37 @@ export async function getRenderJobAction(conceptId: string): Promise<RenderJob> 
   const clips = await prisma.clip.findMany({
     where: { id: { in: scenes.map((scene) => scene.clipId) } },
   });
-  const clipsById = new Map(clips.map((clip) => [clip.id, clip]));
+  const clipIds = new Set(clips.map((clip) => clip.id));
 
-  const jobScenes: RenderJobScene[] = [];
-  for (const scene of scenes) {
-    const clip = clipsById.get(scene.clipId);
-    if (!clip) {
-      return { ok: false, message: `Clip "${scene.clipName}" nicht gefunden — Drive neu synchronisieren?` };
-    }
-    jobScenes.push({
-      driveFileId: clip.driveFileId,
-      clipName: clip.name,
-      timingSeconds: scene.timingSeconds,
-    });
+  const missing = scenes.find((scene) => !clipIds.has(scene.clipId));
+  if (missing) {
+    return { ok: false, message: `Clip "${missing.clipName}" nicht gefunden — Drive neu synchronisieren?` };
   }
 
-  return {
-    ok: true,
-    accessToken: session.accessToken,
-    scenes: jobScenes,
-    caption: `${concept.caption} ${concept.hashtags.join(" ")}`.trim(),
-    fileBaseName: concept.trendTitle
-      .toLowerCase()
-      .replace(/[^a-z0-9äöüß]+/gi, "-")
-      .replace(/^-+|-+$/g, ""),
+  const token = createRenderToken(session.accessToken);
+  const baseUrl = getBaseUrl();
+
+  const inputProps: ShotlistVideoProps = {
+    caption: concept.caption,
+    hashtags: concept.hashtags,
+    scenes: scenes.map((scene) => ({
+      order: scene.order,
+      note: scene.note,
+      timingSeconds: scene.timingSeconds,
+      clipUrl: `${baseUrl}/api/clips/${scene.clipId}/media?token=${token}`,
+    })),
   };
+
+  try {
+    const fileName = `${conceptId}-${Date.now()}.mp4`;
+    const rendersDir = path.join(process.cwd(), "renders");
+    await mkdir(rendersDir, { recursive: true });
+
+    await renderShotlistVideo(inputProps, path.join(rendersDir, fileName));
+
+    return { ok: true, downloadUrl: `/api/renders/${fileName}` };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
+    return { ok: false, message: `Render fehlgeschlagen: ${detail}` };
+  }
 }

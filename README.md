@@ -30,14 +30,13 @@ Aktuell umgesetzt:
   in `visionSummary` gecacht) und schlägt darauf basierend eine passende
   Clip-Auswahl zum gewählten Hook-Format vor.
 - **Schritt 5** — Rendering-Pipeline: Der "Video rendern"-Button im
-  Konzept-Generator schneidet das Video **direkt im Browser** zusammen
-  (`src/lib/browser-render.ts`): Die Clips werden mit dem eigenen
-  Google-Zugriffstoken von Drive geladen, in unsichtbaren `<video>`-
-  Elementen abgespielt (nutzt den Hardware-Decoder des Geräts), auf ein
-  1080×1920-Canvas gezeichnet (Cover-Crop, Caption-Overlay) und per
-  MediaRecorder aufgezeichnet. Das fertige Video wird direkt als Datei
-  heruntergeladen — kein Server, kein Hosting, kein Setup. Details und
-  Einschränkungen siehe "Video-Rendering" unten.
+  Konzept-Generator rendert mit **Remotion** (`remotion/ShotlistVideo.tsx`:
+  1080×1920, Szenen mit Crossfade, Notiz- und Caption-Overlays — als
+  React-Komponente frei gestaltbar). Die Clips streamt eine Proxy-Route
+  aus Drive an den Renderer durch. Das ist für den **lokalen Betrieb auf
+  dem eigenen Rechner** gedacht (siehe "Lokal auf dem eigenen Rechner"
+  unten) — in der Vercel-Online-Version ist der Button deaktiviert, weil
+  die Hobby-Plan-CPU für 4K-/HEVC-Material nicht reicht.
 
 Alle fünf Schritte aus der Architektur-Spezifikation sind damit im Code
 umgesetzt.
@@ -77,8 +76,9 @@ umgesetzt.
      [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ohne
      Key funktioniert der Konzept-Generator trotzdem (Caption/Hashtags/Clips
      einfach manuell eintragen bzw. auswählen).
-   Für das Video-Rendering sind keine weiteren Variablen nötig — es läuft
-   komplett im Browser (siehe "Video-Rendering" unten).
+   Für das Video-Rendering sind keine weiteren Variablen nötig — Remotion
+   wird über `npm install` automatisch mitinstalliert (siehe "Lokal auf
+   dem eigenen Rechner" unten).
 
 3. Datenbank-Schema anwenden:
 
@@ -101,37 +101,73 @@ umgesetzt.
    `/dashboard` weiter. Dort lässt sich über die Ordner-ID + "Jetzt
    synchronisieren" der Drive-Sync manuell auslösen.
 
-## Video-Rendering
+## Lokal auf dem eigenen Rechner
 
-Das Schneiden läuft **komplett im Browser** — es gibt nichts einzurichten
-(kein AWS, kein Blob-Store, keine Tokens). Hintergrund: Serverseitiges
-Rendern auf Vercels Hobby-Plan scheiterte an der schwachen CPU-Zuteilung
-(4K-/HEVC-Material von iPhones lief dort mit ~4% der
-Echtzeit-Geschwindigkeit). Das eigene Gerät hat dagegen einen
-Hardware-Decoder für genau die Videos, die es selbst aufgenommen hat.
+Die App ist dafür gedacht, **lokal auf dem eigenen PC/Mac zu laufen** — vor
+allem wegen des Video-Renderings: Es braucht echte CPU-Leistung, die weder
+Vercels Hobby-Plan (gemessen: ~4% Echtzeit-Geschwindigkeit bei 4K/HEVC)
+noch der Browser-Tab (Speicher-Abstürze bei großen Rohdateien) zuverlässig
+liefern. Lokal streamt FFmpeg die Clips direkt aus Drive und rendert ohne
+Zeitlimit. Die Vercel-Version bleibt parallel nutzbar (z.B. mobil zum
+Konzepte-Anlegen) — nur der Render-Button ist dort deaktiviert.
 
-Ablauf beim Klick auf "Video rendern":
+### Einmalige Einrichtung (Windows)
 
-1. Eine Server Action liefert Szenenliste + das eigene Google-Zugriffstoken.
-2. Der Browser lädt die Clips damit direkt von Drive herunter.
-3. Jeder Clip wird in einem unsichtbaren `<video>` abgespielt, auf ein
-   1080×1920-Canvas gezeichnet (Cover-Crop auf Hochformat, Caption als
-   Text-Overlay) und per MediaRecorder aufgezeichnet; die Tonspuren werden
-   über WebAudio mitgeschnitten.
-4. Das fertige Video wird als Datei zum Speichern angeboten.
+1. **Node.js installieren**: [nodejs.org](https://nodejs.org) → LTS-Version
+   herunterladen und mit Standardeinstellungen installieren.
+2. **Projekt herunterladen**: Auf der GitHub-Repo-Seite → grüner
+   **Code**-Button → **Download ZIP** → entpacken (oder mit Git:
+   `git clone https://github.com/mirorehder/EC-Content-Generator.git`).
+3. **Terminal im Projektordner öffnen**: Im Explorer in den entpackten
+   Ordner gehen → in die Adressleiste `cmd` tippen → Enter.
+4. **Abhängigkeiten installieren**:
 
-Einschränkungen, bewusst in Kauf genommen:
+   ```bash
+   npm install
+   ```
 
-- Die Aufnahme läuft in **Echtzeit** — ein 16-Sekunden-Video braucht ~16
-  Sekunden. Der Tab muss dabei offen und im Vordergrund bleiben.
-- Das Ausgabeformat hängt vom Browser ab: iPhone/Safari und aktuelles
-  Chrome erzeugen MP4, ältere Browser WebM (das Instagram nicht direkt
-  akzeptiert).
-- Lange Rohclips werden komplett heruntergeladen, auch wenn nur die ersten
-  Sekunden gebraucht werden — die Clips im Drive-Ordner daher eher kurz
-  halten.
-- Blockiert der Browser unstummes Abspielen (mobile Autoplay-Regeln),
-  rendert der Clip stumm weiter statt abzubrechen.
+5. **Umgebungsvariablen**: Die Datei `.env.example` in `.env.local`
+   kopieren und die Werte eintragen — sie stehen alle schon im
+   Vercel-Dashboard unter Project → Settings → Environment Variables
+   (Werte per Auge-Symbol einblenden und kopieren). Wichtig:
+   `NEXTAUTH_URL=http://localhost:3000` setzen (nicht die Vercel-URL).
+   `DATABASE_URL` einfach identisch übernehmen — lokal und online nutzen
+   dieselbe Datenbank, Konzepte und Clips sind also überall gleich.
+6. **Google-Login für localhost freischalten**: [Google Cloud
+   Console](https://console.cloud.google.com) → APIs & Dienste →
+   Anmeldedaten → den OAuth-Client öffnen → bei **Autorisierte
+   Weiterleitungs-URIs** zusätzlich eintragen:
+   `http://localhost:3000/api/auth/callback/google`
+
+### Starten (jedes Mal)
+
+```bash
+npm run dev
+```
+
+Dann [http://localhost:3000](http://localhost:3000) im Browser öffnen.
+Beenden mit `Strg+C` im Terminal.
+
+### Rendering-Details
+
+Der "Video rendern"-Button rendert direkt auf dem Rechner mit Remotion:
+Die Komposition (`remotion/ShotlistVideo.tsx`, 1080×1920, Crossfades,
+Szenen-Notizen + Caption/Hashtags als Overlays) wird per Node-API
+gebündelt und gerendert; die Clips streamt die Proxy-Route
+`/api/clips/[clipId]/media` mit einem kurzlebigen Token aus Drive durch.
+Das fertige Video landet im Ordner `renders/` und wird als Download-Link
+angeboten.
+
+Beim **allerersten Render** lädt Remotion einmalig einen eigenen
+Headless-Chrome herunter (~150 MB) — das dauert einmal etwas länger,
+danach nicht mehr.
+
+Die Video-Gestaltung lässt sich interaktiv im Remotion Studio anpassen:
+
+```bash
+npm run remotion:studio   # Vorschau der Komposition im Browser
+npm run remotion:render   # Test-Render mit Beispiel-Props nach out/video.mp4
+```
 
 ## Deployment
 
