@@ -35,17 +35,4 @@ model Concept {
   hashtags      String[]
   shotlist      Json
   createdAt     DateTime @default(now())
-  renders       Render[]
-}
-
-model Render {
-  id           String   @id @default(cuid())
-  conceptId    String
-  concept      Concept  @relation(fields: [conceptId], references: [id])
-  status       String // "pending" | "done" | "error"
-  outputUrl    String?
-  errorMessage String?
-  createdAt    DateTime @default(now())
-
-  @@index([conceptId])
 }

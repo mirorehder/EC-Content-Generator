@@ -30,16 +30,14 @@ Aktuell umgesetzt:
   in `visionSummary` gecacht) und schlägt darauf basierend eine passende
   Clip-Auswahl zum gewählten Hook-Format vor.
 - **Schritt 5** — Rendering-Pipeline: Der "Video rendern"-Button im
-  Konzept-Generator stößt einen GitHub-Actions-Workflow
-  (`.github/workflows/render.yml`) an, der die ausgewählten Clips aus Drive
-  lädt, per FFmpeg aneinanderhängt (vertikal auf 1080×1920 normalisiert, je
-  Szene auf die Timing-Länge getrimmt), die Caption als Text-Overlay
-  einbrennt und das Ergebnis nach Vercel Blob Storage hochlädt. Das Rendern
-  läuft bewusst *nicht* in der Vercel-Funktion selbst — Vercels Hobby-Plan
-  gibt Functions zu wenig CPU, um 4K-/HEVC-Rohmaterial (typisch bei
-  iPhone-Aufnahmen) in vertretbarer Zeit zu dekodieren; ein
-  GitHub-Actions-Runner hat dafür genug Leistung. Details und Setup siehe
-  "Video-Rendering einrichten" unten.
+  Konzept-Generator schneidet das Video **direkt im Browser** zusammen
+  (`src/lib/browser-render.ts`): Die Clips werden mit dem eigenen
+  Google-Zugriffstoken von Drive geladen, in unsichtbaren `<video>`-
+  Elementen abgespielt (nutzt den Hardware-Decoder des Geräts), auf ein
+  1080×1920-Canvas gezeichnet (Cover-Crop, Caption-Overlay) und per
+  MediaRecorder aufgezeichnet. Das fertige Video wird direkt als Datei
+  heruntergeladen — kein Server, kein Hosting, kein Setup. Details und
+  Einschränkungen siehe "Video-Rendering" unten.
 
 Alle fünf Schritte aus der Architektur-Spezifikation sind damit im Code
 umgesetzt.
@@ -79,11 +77,8 @@ umgesetzt.
      [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ohne
      Key funktioniert der Konzept-Generator trotzdem (Caption/Hashtags/Clips
      einfach manuell eintragen bzw. auswählen).
-   - `RENDER_GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`,
-     `RENDER_CALLBACK_SECRET`: für die Rendering-Pipeline — siehe
-     "Video-Rendering einrichten" unten. Ohne diese Variablen funktioniert
-     die App weiterhin, der "Video rendern"-Button meldet dann nur, dass
-     das Rendering noch nicht konfiguriert ist.
+   Für das Video-Rendering sind keine weiteren Variablen nötig — es läuft
+   komplett im Browser (siehe "Video-Rendering" unten).
 
 3. Datenbank-Schema anwenden:
 
@@ -106,55 +101,37 @@ umgesetzt.
    `/dashboard` weiter. Dort lässt sich über die Ordner-ID + "Jetzt
    synchronisieren" der Drive-Sync manuell auslösen.
 
-## Video-Rendering einrichten
+## Video-Rendering
 
-Das eigentliche FFmpeg-Rendern läuft **nicht** in der Vercel-Funktion,
-sondern in einem GitHub-Actions-Workflow (`.github/workflows/render.yml`):
-Vercels Hobby-Plan gibt Functions zu wenig CPU, um 4K-/HEVC-Rohmaterial
-(z.B. iPhone-Aufnahmen) in vertretbarer Zeit zu dekodieren — ein normaler
-GitHub-Actions-Runner (2 vCPUs) schafft das ohne Weiteres.
+Das Schneiden läuft **komplett im Browser** — es gibt nichts einzurichten
+(kein AWS, kein Blob-Store, keine Tokens). Hintergrund: Serverseitiges
+Rendern auf Vercels Hobby-Plan scheiterte an der schwachen CPU-Zuteilung
+(4K-/HEVC-Material von iPhones lief dort mit ~4% der
+Echtzeit-Geschwindigkeit). Das eigene Gerät hat dagegen einen
+Hardware-Decoder für genau die Videos, die es selbst aufgenommen hat.
 
-Ablauf: Der "Video rendern"-Button löst per GitHub-API einen
-`workflow_dispatch` aus → der Workflow lädt die Clips direkt von Drive,
-rendert mit FFmpeg, lädt das Ergebnis nach Vercel Blob hoch und meldet sich
-über einen Webhook (`/api/render-callback`) mit dem Ergebnis zurück. Die
-Konzept-Seite pollt den Status, bis er fertig ist.
+Ablauf beim Klick auf "Video rendern":
 
-Setup (einmalig, alles in GitHub/Vercel, kein AWS):
+1. Eine Server Action liefert Szenenliste + das eigene Google-Zugriffstoken.
+2. Der Browser lädt die Clips damit direkt von Drive herunter.
+3. Jeder Clip wird in einem unsichtbaren `<video>` abgespielt, auf ein
+   1080×1920-Canvas gezeichnet (Cover-Crop auf Hochformat, Caption als
+   Text-Overlay) und per MediaRecorder aufgezeichnet; die Tonspuren werden
+   über WebAudio mitgeschnitten.
+4. Das fertige Video wird als Datei zum Speichern angeboten.
 
-1. **GitHub Personal Access Token** erzeugen: GitHub → Profilbild →
-   **Settings** → **Developer settings** → **Personal access tokens** →
-   **Tokens (classic)** → **Generate new token**. Scope: `repo` (bei
-   privatem Repo nötig) + `workflow`. Token kopieren.
-2. **Vercel-Dashboard** → dieses Projekt → **Settings** → **Environment
-   Variables** → folgende hinzufügen:
-   - `RENDER_GITHUB_TOKEN`: der Token aus Schritt 1
-   - `GITHUB_REPO_OWNER`: `mirorehder`
-   - `GITHUB_REPO_NAME`: `EC-Content-Generator`
-   - `RENDER_CALLBACK_SECRET`: ein beliebiger langer Zufallsstring (z.B.
-     mit `openssl rand -hex 32` erzeugen) — dient nur dazu, dass der
-     Callback-Endpunkt Aufrufe von GitHub Actions erkennt und keine
-     fremden.
-3. **GitHub-Repo** → **Settings** → **Secrets and variables** →
-   **Actions** → **New repository secret**, dreimal:
-   - `BLOB_READ_WRITE_TOKEN`: klassischer Token aus dem
-     Blob-Store-Dashboard (Storage → Blob-Store → "Create token", **nicht**
-     der OIDC-Automatismus — Actions-Runner sind kein Vercel-Kontext)
-   - `RENDER_CALLBACK_SECRET`: **derselbe** Wert wie in Schritt 2
-   - `APP_URL`: die Produktions-URL der App (z.B.
-     `https://ec-content-generator.vercel.app`, ohne Slash am Ende)
-4. Redeploy auf Vercel, damit die neuen Variablen greifen.
+Einschränkungen, bewusst in Kauf genommen:
 
-Danach funktioniert der "Video rendern"-Button: Clips werden aus Drive
-geladen, auf 1080×1920 normalisiert, auf die jeweilige Szenen-Länge
-getrimmt, aneinandergehängt und die Caption als Text-Overlay eingebrannt
-(Font: DejaVu Sans Bold, liegt unter `assets/fonts/`). Fortschritt lässt
-sich auch direkt im GitHub-Repo unter **Actions** mitverfolgen.
-
-**Bekannte Einschränkung:** Es wird angenommen, dass jeder Clip eine
-Audiospur hat (bei echtem Kamera-/Handymaterial praktisch immer der Fall).
-Ein komplett stummer Clip lässt den Render mit einer klaren FFmpeg-Fehler-
-meldung fehlschlagen statt automatisch auf Video-only umzuschalten.
+- Die Aufnahme läuft in **Echtzeit** — ein 16-Sekunden-Video braucht ~16
+  Sekunden. Der Tab muss dabei offen und im Vordergrund bleiben.
+- Das Ausgabeformat hängt vom Browser ab: iPhone/Safari und aktuelles
+  Chrome erzeugen MP4, ältere Browser WebM (das Instagram nicht direkt
+  akzeptiert).
+- Lange Rohclips werden komplett heruntergeladen, auch wenn nur die ersten
+  Sekunden gebraucht werden — die Clips im Drive-Ordner daher eher kurz
+  halten.
+- Blockiert der Browser unstummes Abspielen (mobile Autoplay-Regeln),
+  rendert der Clip stumm weiter statt abzubrechen.
 
 ## Deployment
 

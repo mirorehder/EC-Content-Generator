@@ -1,27 +1,32 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
-import { isGithubRenderConfigured, triggerGithubRender } from "@/lib/github-render";
 import { prisma } from "@/lib/prisma";
 import { requireSession, type ShotlistScene } from "./actions";
 
-export interface StartRenderResult {
-  ok: boolean;
-  renderId?: string;
-  message?: string;
+export interface RenderJobScene {
+  driveFileId: string;
+  clipName: string;
+  timingSeconds: number;
 }
 
-export async function startRenderAction(conceptId: string): Promise<StartRenderResult> {
-  const session = await requireSession();
+export interface RenderJob {
+  ok: boolean;
+  message?: string;
+  /** Google-Zugriffstoken der eigenen Session — der Browser lädt die Clips damit direkt von Drive. */
+  accessToken?: string;
+  scenes?: RenderJobScene[];
+  caption?: string;
+  fileBaseName?: string;
+}
 
-  if (!isGithubRenderConfigured()) {
-    return {
-      ok: false,
-      message:
-        'Video-Rendering ist noch nicht eingerichtet. Siehe README, Abschnitt "Video-Rendering einrichten".',
-    };
-  }
+/**
+ * Liefert dem Browser alles, was er zum clientseitigen Rendern braucht.
+ * Das eigentliche Schneiden passiert komplett im Browser
+ * (src/lib/browser-render.ts) — hier wird nur autorisiert und aufgelöst,
+ * welche Drive-Dateien zu den Szenen gehören.
+ */
+export async function getRenderJobAction(conceptId: string): Promise<RenderJob> {
+  const session = await requireSession();
 
   if (!session.accessToken) {
     return { ok: false, message: "Kein Google-Zugriffstoken vorhanden. Bitte neu anmelden." };
@@ -36,55 +41,29 @@ export async function startRenderAction(conceptId: string): Promise<StartRenderR
   const clips = await prisma.clip.findMany({
     where: { id: { in: scenes.map((scene) => scene.clipId) } },
   });
-  const driveFileIdByClipId = new Map(clips.map((clip) => [clip.id, clip.driveFileId]));
+  const clipsById = new Map(clips.map((clip) => [clip.id, clip]));
 
-  const renderScenes = scenes.map((scene) => {
-    const driveFileId = driveFileIdByClipId.get(scene.clipId);
-    if (!driveFileId) throw new Error(`Clip ${scene.clipName} nicht gefunden.`);
-    return { driveFileId, timingSeconds: scene.timingSeconds };
-  });
-
-  const render = await prisma.render.create({
-    data: { conceptId, status: "pending" },
-  });
-
-  try {
-    await triggerGithubRender(
-      render.id,
-      session.accessToken,
-      renderScenes,
-      `${concept.caption} ${concept.hashtags.join(" ")}`.trim()
-    );
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Unbekannter Fehler.";
-    await prisma.render.update({
-      where: { id: render.id },
-      data: { status: "error", errorMessage: detail },
+  const jobScenes: RenderJobScene[] = [];
+  for (const scene of scenes) {
+    const clip = clipsById.get(scene.clipId);
+    if (!clip) {
+      return { ok: false, message: `Clip "${scene.clipName}" nicht gefunden — Drive neu synchronisieren?` };
+    }
+    jobScenes.push({
+      driveFileId: clip.driveFileId,
+      clipName: clip.name,
+      timingSeconds: scene.timingSeconds,
     });
-    return { ok: false, message: `Render konnte nicht gestartet werden: ${detail}` };
   }
 
-  revalidatePath("/dashboard/concepts");
-  return { ok: true, renderId: render.id };
-}
-
-export interface RenderState {
-  id: string;
-  status: string;
-  outputUrl: string | null;
-  errorMessage: string | null;
-}
-
-export async function getRenderStatusAction(renderId: string): Promise<RenderState | null> {
-  await requireSession();
-
-  const render = await prisma.render.findUnique({ where: { id: renderId } });
-  if (!render) return null;
-
   return {
-    id: render.id,
-    status: render.status,
-    outputUrl: render.outputUrl,
-    errorMessage: render.errorMessage,
+    ok: true,
+    accessToken: session.accessToken,
+    scenes: jobScenes,
+    caption: `${concept.caption} ${concept.hashtags.join(" ")}`.trim(),
+    fileBaseName: concept.trendTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9äöüß]+/gi, "-")
+      .replace(/^-+|-+$/g, ""),
   };
 }
