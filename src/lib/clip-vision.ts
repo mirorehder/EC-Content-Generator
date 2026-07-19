@@ -1,4 +1,4 @@
-import type { Part } from "@google/genai";
+import { Type, type Part } from "@google/genai";
 
 import { getGeminiClient, withGeminiRetry } from "@/lib/gemini";
 
@@ -64,6 +64,23 @@ export async function analyzeClipsVision(
       config: {
         systemInstruction: SYSTEM_PROMPT,
         responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summaries: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  clipId: { type: Type.STRING },
+                  summary: { type: Type.STRING },
+                },
+                required: ["clipId", "summary"],
+              },
+            },
+          },
+          required: ["summaries"],
+        },
       },
     })
   );

@@ -31,30 +31,36 @@ export async function syncDriveFolder(
   try {
     const files = await listVideoFiles(session.accessToken, folderId);
 
-    await prisma.$transaction(
-      files.map((file) =>
-        prisma.clip.upsert({
-          where: { driveFileId: file.id },
-          create: {
-            driveFileId: file.id,
-            name: file.name,
-            mimeType: file.mimeType,
-            durationMs: file.durationMs,
-            thumbnailLink: file.thumbnailLink,
-            webViewLink: file.webViewLink,
-            category: file.category,
-          },
-          update: {
-            name: file.name,
-            mimeType: file.mimeType,
-            durationMs: file.durationMs,
-            thumbnailLink: file.thumbnailLink,
-            webViewLink: file.webViewLink,
-            category: file.category,
-          },
-        })
-      )
-    );
+    // Bewusst keine Transaktion: Bei vielen Clips + etwas Latenz zur
+    // gehosteten Datenbank reißt das 5s-Transaktionslimit von Prisma.
+    // Upserts sind idempotent — kleine parallele Häppchen reichen.
+    const CHUNK_SIZE = 10;
+    for (let i = 0; i < files.length; i += CHUNK_SIZE) {
+      await Promise.all(
+        files.slice(i, i + CHUNK_SIZE).map((file) =>
+          prisma.clip.upsert({
+            where: { driveFileId: file.id },
+            create: {
+              driveFileId: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              durationMs: file.durationMs,
+              thumbnailLink: file.thumbnailLink,
+              webViewLink: file.webViewLink,
+              category: file.category,
+            },
+            update: {
+              name: file.name,
+              mimeType: file.mimeType,
+              durationMs: file.durationMs,
+              thumbnailLink: file.thumbnailLink,
+              webViewLink: file.webViewLink,
+              category: file.category,
+            },
+          })
+        )
+      );
+    }
 
     revalidatePath("/dashboard");
 

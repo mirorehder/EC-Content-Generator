@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 // Alias, not a pinned dated model — avoids breaking again when Google
 // retires a specific version (as it did with gemini-2.5-flash).
@@ -58,6 +58,16 @@ export async function suggestCaption(
       config: {
         systemInstruction: EDGECHASE_SYSTEM_PROMPT,
         responseMimeType: "application/json",
+        // Erzwingt syntaktisch gültiges JSON in genau dieser Form — ohne
+        // Schema liefert Gemini gelegentlich abgeschnittenes/kaputtes JSON.
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            caption: { type: Type.STRING },
+            hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ["caption", "hashtags"],
+        },
       },
     })
   );
@@ -106,6 +116,13 @@ export async function suggestMatchingClips(
       config: {
         systemInstruction: CLIP_MATCH_SYSTEM_PROMPT,
         responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            clipIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ["clipIds"],
+        },
       },
     })
   );
