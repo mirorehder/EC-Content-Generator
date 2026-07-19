@@ -63,7 +63,8 @@ export interface ClipSuggestionResult {
 }
 
 export async function suggestClipsForConceptAction(
-  trendFormatId: string
+  trendFormatId: string,
+  category: string | null
 ): Promise<ClipSuggestionResult> {
   const session = await requireSession();
 
@@ -76,9 +77,19 @@ export async function suggestClipsForConceptAction(
     return { ok: false, message: "Kein Google-Zugriffstoken vorhanden. Bitte neu anmelden." };
   }
 
-  const clips = await prisma.clip.findMany();
+  // Auf einen Drive-Ordner eingrenzen: Die Vision-Analyse läuft pro Clip
+  // und ist teuer/langsam — für ein Parkour-Konzept muss nur der passende
+  // Ordner (z.B. "Parkour-Bangers") gescannt werden, nicht die ganze
+  // Bibliothek.
+  const clipFilter = category ? { category } : {};
+  const clips = await prisma.clip.findMany({ where: clipFilter });
   if (clips.length === 0) {
-    return { ok: false, message: "Keine synchronisierten Clips vorhanden." };
+    return {
+      ok: false,
+      message: category
+        ? `Keine Clips im Ordner "${category}" vorhanden.`
+        : "Keine synchronisierten Clips vorhanden.",
+    };
   }
 
   try {
@@ -101,7 +112,7 @@ export async function suggestClipsForConceptAction(
       );
     }
 
-    const refreshedClips = await prisma.clip.findMany();
+    const refreshedClips = await prisma.clip.findMany({ where: clipFilter });
 
     const suggestedClipIds = await suggestMatchingClips(
       format.title,

@@ -43,7 +43,11 @@ export default async function ConceptsPage() {
         <CardContent>
           <ConceptForm
             trendFormats={TREND_FORMATS}
-            clips={clips.map((clip) => ({ id: clip.id, name: clip.name }))}
+            clips={clips.map((clip) => ({
+              id: clip.id,
+              name: clip.name,
+              category: clip.category,
+            }))}
           />
         </CardContent>
       </Card>

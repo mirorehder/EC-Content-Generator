@@ -8,12 +8,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { formatDuration } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
-const UPCOMING_MODULES = [
-  {
-    title: "Rendering-Pipeline",
-    description: "Shotlist per Remotion Lambda rendern und den Download bereitstellen.",
-  },
-];
+type ClipRow = Awaited<ReturnType<typeof prisma.clip.findMany>>[number];
+
+function groupClipsByFolder(clips: ClipRow[]): [string, ClipRow[]][] {
+  const groups = new Map<string, ClipRow[]>();
+  for (const clip of clips) {
+    const key = clip.category ?? "Ohne Ordner";
+    const list = groups.get(key) ?? [];
+    list.push(clip);
+    groups.set(key, list);
+  }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "de"));
+}
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -22,7 +28,8 @@ export default async function DashboardPage() {
     redirect("/");
   }
 
-  const clips = await prisma.clip.findMany({ orderBy: { syncedAt: "desc" } });
+  const clips = await prisma.clip.findMany({ orderBy: { name: "asc" } });
+  const clipsByFolder = groupClipsByFolder(clips);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
@@ -59,31 +66,40 @@ export default async function DashboardPage() {
               Noch keine Clips synchronisiert.
             </p>
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2">
-              {clips.map((clip) => (
-                <li key={clip.id} className="flex gap-3 rounded-md border border-border p-2">
-                  {clip.thumbnailLink ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- external Drive thumbnail URL, not a local asset
-                    <img
-                      src={clip.thumbnailLink}
-                      alt={clip.name}
-                      width={80}
-                      height={45}
-                      className="h-[45px] w-20 shrink-0 rounded object-cover"
-                    />
-                  ) : (
-                    <div className="h-[45px] w-20 shrink-0 rounded bg-muted" />
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{clip.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDuration(clip.durationMs)}
-                      {clip.category ? ` · ${clip.category}` : ""}
-                    </p>
-                  </div>
-                </li>
+            <div className="flex flex-col gap-2">
+              {clipsByFolder.map(([folder, folderClips]) => (
+                <details key={folder} className="rounded-md border border-border">
+                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+                    {folder}{" "}
+                    <span className="text-muted-foreground">({folderClips.length})</span>
+                  </summary>
+                  <ul className="grid gap-3 px-3 pb-3 sm:grid-cols-2">
+                    {folderClips.map((clip) => (
+                      <li key={clip.id} className="flex gap-3 rounded-md border border-border p-2">
+                        {clip.thumbnailLink ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- external Drive thumbnail URL, not a local asset
+                          <img
+                            src={clip.thumbnailLink}
+                            alt={clip.name}
+                            width={80}
+                            height={45}
+                            className="h-[45px] w-20 shrink-0 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="h-[45px] w-20 shrink-0 rounded bg-muted" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{clip.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDuration(clip.durationMs)}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               ))}
-            </ul>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -111,16 +127,6 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {UPCOMING_MODULES.map((module) => (
-          <Card key={module.title}>
-            <CardHeader>
-              <CardTitle className="text-base">{module.title}</CardTitle>
-              <CardDescription>{module.description}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
-      </div>
     </main>
   );
 }

@@ -14,6 +14,25 @@ import type { TrendFormat } from "@/lib/trend-formats";
 interface ClipOption {
   id: string;
   name: string;
+  category: string | null;
+}
+
+const NO_FOLDER = "Ohne Ordner";
+
+function groupByFolder(clips: ClipOption[]): [string, ClipOption[]][] {
+  const groups = new Map<string, ClipOption[]>();
+  for (const clip of clips) {
+    const key = clip.category ?? NO_FOLDER;
+    const list = groups.get(key) ?? [];
+    list.push(clip);
+    groups.set(key, list);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, "de"))
+    .map(([folder, list]) => [
+      folder,
+      [...list].sort((a, b) => a.name.localeCompare(b.name, "de")),
+    ]);
 }
 
 export function ConceptForm({
@@ -31,6 +50,12 @@ export function ConceptForm({
   const [isGenerating, startGenerating] = useTransition();
   const [clipSuggestionMessage, setClipSuggestionMessage] = useState<string | null>(null);
   const [isSuggestingClips, startSuggestingClips] = useTransition();
+  const [suggestFolder, setSuggestFolder] = useState<string>("");
+
+  const clipsByFolder = groupByFolder(clips);
+  const folderNames = clipsByFolder
+    .map(([folder]) => folder)
+    .filter((folder) => folder !== NO_FOLDER);
 
   const [result, formAction, isSaving] = useActionState<CreateConceptResult | null, FormData>(
     createConceptAction,
@@ -46,7 +71,7 @@ export function ConceptForm({
   function handleSuggestClips() {
     setClipSuggestionMessage(null);
     startSuggestingClips(async () => {
-      const suggestion = await suggestClipsForConceptAction(trendFormatId);
+      const suggestion = await suggestClipsForConceptAction(trendFormatId, suggestFolder || null);
       if (suggestion.ok) {
         setClipIds(suggestion.clipIds ?? []);
       } else {
@@ -89,18 +114,33 @@ export function ConceptForm({
       </div>
 
       <div>
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">Clips</p>
           {clips.length > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isSuggestingClips || !trendFormatId}
-              onClick={handleSuggestClips}
-            >
-              {isSuggestingClips ? "Analysiere…" : "Passende Clips vorschlagen"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <select
+                value={suggestFolder}
+                onChange={(e) => setSuggestFolder(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Ordner für den Clip-Vorschlag"
+              >
+                <option value="">Alle Ordner</option>
+                {folderNames.map((folder) => (
+                  <option key={folder} value={folder}>
+                    {folder}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isSuggestingClips || !trendFormatId}
+                onClick={handleSuggestClips}
+              >
+                {isSuggestingClips ? "Analysiere…" : "Passende Clips vorschlagen"}
+              </Button>
+            </div>
           )}
         </div>
         {clipSuggestionMessage && (
@@ -112,18 +152,40 @@ export function ConceptForm({
           </p>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {clips.map((clip) => (
-              <label key={clip.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  name="clipIds"
-                  value={clip.id}
-                  checked={clipIds.includes(clip.id)}
-                  onChange={() => toggleClip(clip.id)}
-                />
-                {clip.name}
-              </label>
-            ))}
+            {clipsByFolder.map(([folder, folderClips]) => {
+              const selectedInFolder = folderClips.filter((clip) =>
+                clipIds.includes(clip.id)
+              ).length;
+              return (
+                <details
+                  key={folder}
+                  className="rounded-md border border-border"
+                  open={selectedInFolder > 0}
+                >
+                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+                    {folder}{" "}
+                    <span className="text-muted-foreground">
+                      ({selectedInFolder > 0 ? `${selectedInFolder}/` : ""}
+                      {folderClips.length})
+                    </span>
+                  </summary>
+                  <div className="flex flex-col gap-1.5 px-3 pb-3">
+                    {folderClips.map((clip) => (
+                      <label key={clip.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          name="clipIds"
+                          value={clip.id}
+                          checked={clipIds.includes(clip.id)}
+                          onChange={() => toggleClip(clip.id)}
+                        />
+                        {clip.name}
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
           </div>
         )}
       </div>
